@@ -20,8 +20,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY=${PYTHON:-python3}
 
-AUTOPILOT_EP=${AUTOPILOT_EP:-udp:0.0.0.0:14550}
-QGC_HOST=${QGC_HOST:-10.3.1.96}
+AUTOPILOT_EP=${AUTOPILOT_EP:-/dev/serial/by-id/usb-CubePilot_CubeOrange_0-if00}
+AUTOPILOT_BAUD=${AUTOPILOT_BAUD:-57600}
 QGC_PORT=${QGC_PORT:-14550}
 BIND_QGC_PORT=${BIND_QGC_PORT:-}
 
@@ -43,11 +43,22 @@ for arg in "$@"; do
   fi
 done
 
+try_proxy() {
+  local QGC_HOST="$1"
+  echo "Attempting to start mavlink_proxy.py with QGC_HOST=$QGC_HOST"
+  "$PY" "$SCRIPT_DIR/mavlink_proxy.py" \
+    --autopilot "${AUTOPILOT_EP}" \
+    --autopilot-baud "${AUTOPILOT_BAUD}" \
+    --qgc "$QGC_HOST" \
+    --qgc-port "${QGC_PORT}" \
+    "${EXTRA_ARGS[@]}" \
+    "${PASSTHRU[@]}"
+}
+
 set -x
-exec "$PY" "$SCRIPT_DIR/mavlink_proxy.py" \
-  --autopilot "${AUTOPILOT_EP}" \
-  --qgc "${QGC_HOST}" \
-  --qgc-port "${QGC_PORT}" \
-  ${AUTOPILOT_BAUD:+--autopilot-baud "${AUTOPILOT_BAUD}"} \
-  "${EXTRA_ARGS[@]}" \
-  "${PASSTHRU[@]}"
+try_proxy "172.20.2.207"
+status=$?
+if [[ $status -ne 0 ]]; then
+  echo "First attempt failed, retrying with QGC_HOST=172.20.2.202"
+  try_proxy "172.20.2.202"
+fi

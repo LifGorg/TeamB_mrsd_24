@@ -7,6 +7,7 @@ from collections import deque
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import CompressedImage, Image
 from cv_bridge import CvBridge
 import numpy as np
@@ -46,7 +47,7 @@ class GStreamerStreaming:
         self.loop_thread = None
         
         # Frame buffer
-        self.frame_buffer = deque(maxlen=10)
+        self.frame_buffer = deque(maxlen=3)
         self.buffer_lock = threading.Lock()
         
     def get_pipeline_string(self):
@@ -129,14 +130,12 @@ class GStreamerStreaming:
             
     def on_new_sample(self, sink, data):
         """Process new GStreamer sample"""
-        print("[DEBUG-SAMPLE] on_new_sample callback called!")
         try:
             # Get sample
             sample = sink.emit("pull-sample")
             if not sample:
                 print("[DEBUG-SAMPLE] ERROR: No sample received from sink.emit")
                 return Gst.FlowReturn.ERROR
-            print("[DEBUG-SAMPLE] Got sample from sink")
                 
             # Get buffer from sample
             buffer = sample.get_buffer()
@@ -203,14 +202,12 @@ class GStreamerStreaming:
     def retrieve_image(self):
         """Get the latest image frame and timestamp"""
         with self.buffer_lock:
-            print(f"[DEBUG-RETRIEVE] Buffer size: {len(self.frame_buffer)}")
             if not self.frame_buffer:
                 print("[DEBUG-RETRIEVE] Buffer is empty!")
                 return None, 0
             # Get the latest frame without clearing the entire buffer
             # This matches the behavior of the working streaming.py
             frame, timestamp = self.frame_buffer[-1]
-            print(f"[DEBUG-RETRIEVE] Retrieved frame shape: {frame.shape}")
             return frame, timestamp
             
     def shutdown(self):
@@ -238,18 +235,20 @@ class RtspStreamerGStreamer(Node):
         self.declare_parameter('rtsp_url', 'rtsp://10.3.1.124:8556/ghadron')
         self.declare_parameter('topic', '/image_raw_compressed')
         self.declare_parameter('raw_topic', '/image_raw')
-        self.declare_parameter('fps', 2.0)
+        self.declare_parameter('fps', 4.0)
+        self.declare_parameter('raw_fps', 4.0)  # 原始图像专用帧率
         self.declare_parameter('width', 640)
-        self.declare_parameter('height', 512)
-        self.declare_parameter('jpeg_quality', 30)
+        self.declare_parameter('height', 360)
+        self.declare_parameter('jpeg_quality', 10)
 
         # 获取参数
         self.rtsp_url = self.get_parameter('rtsp_url').get_parameter_value().string_value
         self.topic = self.get_parameter('topic').get_parameter_value().string_value
         self.raw_topic = self.get_parameter('raw_topic').get_parameter_value().string_value
-        self.fps = self.get_parameter('fps').get_parameter_value().double_value or 2.0
+        self.fps = self.get_parameter('fps').get_parameter_value().double_value or 4.0
+        self.raw_fps = self.get_parameter('raw_fps').get_parameter_value().double_value or 4.0
         self.width = self.get_parameter('width').get_parameter_value().integer_value or 640
-        self.height = self.get_parameter('height').get_parameter_value().integer_value or 512
+        self.height = self.get_parameter('height').get_parameter_value().integer_value or 360
         self.jpeg_quality = self.get_parameter('jpeg_quality').get_parameter_value().integer_value or 30
         
         print(f"[DEBUG] Parameters loaded:")
@@ -257,15 +256,24 @@ class RtspStreamerGStreamer(Node):
         print(f"  - topic: {self.topic}")
         print(f"  - raw_topic: {self.raw_topic}")
         print(f"  - fps: {self.fps}")
+        print(f"  - raw_fps: {self.raw_fps}")
         print(f"  - width: {self.width}x{self.height}")
         print(f"  - jpeg_quality: {self.jpeg_quality}")
 
-        # 创建发布器
-        print(f"[DEBUG] Creating compressed image publisher on topic: {self.topic}")
-        self.publisher = self.create_publisher(CompressedImage, self.topic, 2)
-        print(f"[DEBUG] Creating raw image publisher on topic: {self.raw_topic}")
-        self.raw_publisher = self.create_publisher(Image, self.raw_topic, 2)
-        print("[DEBUG] Publishers created successfully")
+
+        self.video_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,  # best effort
+            durability=DurabilityPolicy.VOLATILE,       # volatile
+            history=HistoryPolicy.KEEP_LAST,           # keep last
+            depth=1  # depth 1
+        )
+
+        # create publishers (with optimized QoS)
+        print(f"[DEBUG] Creating compressed image publisher on topic: {self.topic} with optimized QoS")
+        self.publisher = self.create_publisher(CompressedImage, self.topic, self.video_qos)
+        print(f"[DEBUG] Creating raw image publisher on topic: {self.raw_topic} with optimized QoS")
+        self.raw_publisher = self.create_publisher(Image, self.raw_topic, self.video_qos)
+        print("[DEBUG] Publishers created successfully with BEST_EFFORT QoS")
         
         # 创建CV Bridge
         self.bridge = CvBridge()
@@ -278,40 +286,56 @@ class RtspStreamerGStreamer(Node):
 
         if self.use_gstreamer:
             print('[DEBUG] Attempting to use GStreamer backend')
-            self.get_logger().info('✅ 使用GStreamer后端')
+            self.get_logger().info('✅ using GStreamer backend')
             try:
                 print(f"[DEBUG] Creating GStreamerStreaming with url={self.rtsp_url}, width={self.width}, height={self.height}, fps={self.fps}")
                 self.streamer = GStreamerStreaming(self.rtsp_url, self.width, self.height, self.fps)
                 print("[DEBUG] GStreamerStreaming object created, starting pipeline...")
                 if not self.streamer.start_pipeline():
                     print("[DEBUG] GStreamer pipeline start failed")
-                    self.get_logger().warning('GStreamer启动失败，降级到OpenCV')
+                    self.get_logger().warning('GStreamer pipeline start failed, falling back to OpenCV')
                     self.use_gstreamer = False
                     self._setup_opencv()
                 else:
                     print("[DEBUG] GStreamer pipeline started successfully")
             except Exception as e:
                 print(f"[DEBUG] GStreamer initialization exception: {e}")
-                self.get_logger().warning(f'GStreamer初始化失败: {e}，降级到OpenCV')
+                self.get_logger().warning(f'GStreamer initialization failed: {e}, falling back to OpenCV')
                 self.use_gstreamer = False
                 self._setup_opencv()
         else:
             print('[DEBUG] GStreamer not available, using OpenCV backend')
-            self.get_logger().info('⚠️ 使用OpenCV后端')
+            self.get_logger().info('⚠️ using OpenCV backend')
             self._setup_opencv()
 
-        # 定时器
-        self.period = 1.0 / max(self.fps, 0.1) # we want 2-3fps
-        print(f"[DEBUG] Creating timer with period {self.period:.3f}s (FPS: {self.fps})")
-        self.get_logger().info(f'Creating timer with period {self.period:.3f}s (FPS: {self.fps})')
-        self.timer = self.create_timer(self.period, self._on_timer)
+        # timer - compressed image
+        self.period = 1.0 / max(self.fps, 0.1)
+        print(f"[DEBUG] Creating compressed image timer with period {self.period:.3f}s (FPS: {self.fps})")
+        self.get_logger().info(f'Creating compressed image timer with period {self.period:.3f}s (FPS: {self.fps})')
+        self.timer = self.create_timer(self.period, self._on_timer_compressed)
+        
+        # timer - raw image (3Hz)
+        self.raw_period = 1.0 / max(self.raw_fps, 0.1)
+        print(f"[DEBUG] Creating raw image timer with period {self.raw_period:.3f}s (FPS: {self.raw_fps})")
+        self.get_logger().info(f'Creating raw image timer with period {self.raw_period:.3f}s (FPS: {self.raw_fps})')
+        self.raw_timer = self.create_timer(self.raw_period, self._on_timer_raw)
+        
+        # counters
         self.frame_count = 0
+        self.raw_frame_count = 0
         self.timer_call_count = 0
-        print("[DEBUG] Timer created successfully")
-        self.get_logger().info('Timer created successfully')
+        self.raw_timer_call_count = 0
+        
+        # latest frame cache (for raw image publishing)
+        self.latest_frame = None
+        self.latest_frame_timestamp = 0.0  # Track frame freshness
+        self.latest_frame_lock = threading.Lock()
+        
+        print("[DEBUG] Timers created successfully")
+        self.get_logger().info('Timers created successfully')
 
     def _setup_opencv(self):
-        """设置OpenCV后端"""
+        """setup OpenCV backend"""
         try:
             self.cap = cv2.VideoCapture(self.rtsp_url)
             if self.width > 0:
@@ -319,88 +343,128 @@ class RtspStreamerGStreamer(Node):
             if self.height > 0:
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
         except Exception as e:
-            self.get_logger().error(f'OpenCV设置失败: {e}')
+            self.get_logger().error(f'OpenCV setup failed: {e}')
 
-    def _on_timer(self):
-        """定时器回调"""
+    def _on_timer_compressed(self):
+        """compressed image timer callback"""
         self.timer_call_count += 1
-        if self.timer_call_count % 10 == 1:  # Print every 10 calls
-            print(f"[DEBUG] _on_timer called (count: {self.timer_call_count})")
         
         try:
             if self.use_gstreamer and self.streamer:
-                print(f"[DEBUG] Retrieving image from GStreamer (call {self.timer_call_count})")
                 frame, timestamp = self.streamer.retrieve_image()
                 if frame is not None:
-                    print(f"[DEBUG] Got frame from GStreamer, shape: {frame.shape}, publishing...")
-                    self._publish_frame(frame)
+                    # Update latest frame cache for raw image publishing (zero-copy)
+                    with self.latest_frame_lock:
+                        self.latest_frame = frame  # Direct reference, no copy
+                        self.latest_frame_timestamp = time.time()
+                    # Publish compressed image
+                    self._publish_compressed_frame(frame)
                 else:
+                    # Only print when buffer is empty (every 10 calls to avoid spam)
                     if self.timer_call_count % 10 == 1:
                         print(f"[DEBUG] No frame from GStreamer (call {self.timer_call_count})")
             elif self.cap:
-                print(f"[DEBUG] Reading frame from OpenCV (call {self.timer_call_count})")
                 ret, frame = self.cap.read()
                 if ret and frame is not None:
-                    print(f"[DEBUG] Got frame from OpenCV, shape: {frame.shape}, publishing...")
-                    self._publish_frame(frame)
+                    # Update latest frame cache for raw image publishing (zero-copy)
+                    with self.latest_frame_lock:
+                        self.latest_frame = frame  # Direct reference, no copy
+                        self.latest_frame_timestamp = time.time()
+                    # Publish compressed image
+                    self._publish_compressed_frame(frame)
                 else:
+                    # Only print when no frame available (every 10 calls to avoid spam)
                     if self.timer_call_count % 10 == 1:
                         print(f"[DEBUG] No frame from OpenCV (call {self.timer_call_count})")
             else:
+                # Only print when no streamer available (every 10 calls to avoid spam)
                 if self.timer_call_count % 10 == 1:
                     print(f"[DEBUG] No streamer available (call {self.timer_call_count})")
         except Exception as e:
-            print(f"[DEBUG] Exception in _on_timer: {e}")
-            self.get_logger().error(f'Error in timer callback: {e}')
+            print(f"[DEBUG] Exception in _on_timer_compressed: {e}")
+            self.get_logger().error(f'Error in compressed timer callback: {e}')
 
-    def _publish_frame(self, frame):
-        """发布帧"""
-        print(f"[DEBUG] _publish_frame called with frame shape: {frame.shape}")
+    def _on_timer_raw(self):
+        """raw image timer callback (3Hz)"""
+        self.raw_timer_call_count += 1
+        
         try:
-            # 编码为JPEG
+            # Zero-copy optimization with freshness check
+            with self.latest_frame_lock:
+                frame_to_publish = self.latest_frame
+                # Check if frame is fresh (less than 1 second old)
+                if frame_to_publish is not None:
+                    age = time.time() - self.latest_frame_timestamp
+                    if age > 1.0:  # Frame too old, skip it
+                        frame_to_publish = None
+            
+            if frame_to_publish is not None:
+                # Direct publish without copy - significant performance gain
+                self._publish_raw_frame(frame_to_publish)
+            else:
+                # Only print when no frame available (every 10 calls to avoid spam)
+                if self.raw_timer_call_count % 10 == 1:
+                    print(f"[DEBUG] No fresh frame for raw publishing (call {self.raw_timer_call_count})")
+        except Exception as e:
+            print(f"[DEBUG] Exception in _on_timer_raw: {e}")
+            self.get_logger().error(f'Error in raw timer callback: {e}')
+
+    def _publish_compressed_frame(self, frame):
+        """publish compressed image frame"""
+        try:
+            # encode to JPEG
             encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(max(1, min(self.jpeg_quality, 100)))]
             ok, buf = cv2.imencode('.jpg', frame, encode_params)
             if not ok or buf is None:
                 print("[DEBUG] JPEG encoding failed!")
                 return
-            print(f"[DEBUG] JPEG encoded successfully, size: {len(buf)} bytes")
 
-            # 创建时间戳
+            # create timestamp
             timestamp = self.get_clock().now().to_msg()
             
-            # 发布压缩图像
+            # publish compressed image
             compressed_msg = CompressedImage()
             compressed_msg.header.stamp = timestamp
             compressed_msg.header.frame_id = 'camera'
             compressed_msg.format = 'jpeg'
             compressed_msg.data = buf.tobytes()
             
-            print(f"[DEBUG] Publishing compressed message on topic: {self.topic}")
             self.publisher.publish(compressed_msg)
             
-            # 发布未压缩图像
-            try:
-                raw_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-                raw_msg.header.stamp = timestamp
-                raw_msg.header.frame_id = 'camera'
-                
-                print(f"[DEBUG] Publishing raw message on topic: {self.raw_topic}")
-                self.raw_publisher.publish(raw_msg)
-                print("[DEBUG] Both messages published successfully")
-            except Exception as e:
-                print(f"[DEBUG] Failed to publish raw image: {e}")
-                print("[DEBUG] Compressed message published successfully")
-            
-            # 定期日志
+            # periodic logging
             self.frame_count += 1
-            if self.frame_count % 5 == 0:  # More frequent logging
+            if self.frame_count % 10 == 0:  # Less frequent logging
                 backend = "GStreamer" if self.use_gstreamer else "OpenCV"
-                print(f"[DEBUG] Published {self.frame_count} frames using {backend}")
-                self.get_logger().info(f'Published {self.frame_count} frames using {backend}')
+                print(f"[DEBUG] Published {self.frame_count} compressed frames using {backend}")
+                self.get_logger().info(f'Published {self.frame_count} compressed frames using {backend}')
                 
         except Exception as e:
-            print(f"[DEBUG] Exception in _publish_frame: {e}")
-            self.get_logger().error(f'Frame publishing error: {e}')
+            print(f"[DEBUG] Exception in _publish_compressed_frame: {e}")
+            self.get_logger().error(f'Compressed frame publishing error: {e}')
+
+    def _publish_raw_frame(self, frame):
+        """publish raw image frame (3Hz)"""
+        try:
+            # create timestamp
+            timestamp = self.get_clock().now().to_msg()
+            
+            # publish raw image
+            raw_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+            raw_msg.header.stamp = timestamp
+            raw_msg.header.frame_id = 'camera'
+            
+            self.raw_publisher.publish(raw_msg)
+            
+            # periodic logging
+            self.raw_frame_count += 1
+            if self.raw_frame_count % 15 == 0:  # Log every 15 frames (5 seconds at 3Hz)
+                backend = "GStreamer" if self.use_gstreamer else "OpenCV"
+                print(f"[DEBUG] Published {self.raw_frame_count} raw frames at 3Hz using {backend} (zero-copy optimized)")
+                self.get_logger().info(f'Published {self.raw_frame_count} raw frames at 3Hz using {backend} (zero-copy optimized)')
+                
+        except Exception as e:
+            print(f"[DEBUG] Exception in _publish_raw_frame: {e}")
+            self.get_logger().error(f'Raw frame publishing error: {e}')
 
     def destroy_node(self):
         """清理资源"""

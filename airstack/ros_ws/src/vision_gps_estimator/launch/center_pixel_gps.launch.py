@@ -35,7 +35,7 @@ def generate_launch_description():
     
     declare_robot_namespace_arg = DeclareLaunchArgument(
         'robot_namespace',
-        default_value='dtc_mrsd',
+        default_value='dtc_mrsd_',
         description='MAVROS话题的机器人命名空间'
     )
     
@@ -77,7 +77,7 @@ def generate_launch_description():
     
     declare_estimation_frequency_arg = DeclareLaunchArgument(
         'estimation_frequency',
-        default_value='10.0',
+        default_value='5.0',
         description='GPS估计频率 (Hz)'
     )
     

@@ -70,4 +70,5 @@ set(CMAKE_DEPEND_INFO_FILES
   "examples/CMakeFiles/ir_set_palete.dir/DependInfo.cmake"
   "examples/CMakeFiles/set_ir.dir/DependInfo.cmake"
   "examples/CMakeFiles/download_media_files.dir/DependInfo.cmake"
+  "examples/CMakeFiles/gimbal_pitch_down_90.dir/DependInfo.cmake"
   )
