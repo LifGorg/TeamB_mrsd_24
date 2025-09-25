@@ -103,10 +103,10 @@ class IntegratedNode(Node):
             history=QoSHistoryPolicy.KEEP_LAST
         )
         
-        self.gps_sub = self.create_subscription(NavSatFix, '/robot_1/mavros/global_position/global', self.gps_callback, qos_profile=sensor_qos)
-        self.height_sub = self.create_subscription(Float64, '/robot_1/mavros/global_position/rel_alt', self.height_callback, qos_profile=sensor_qos)
+        self.gps_sub = self.create_subscription(NavSatFix, '/dtc_mrsd/mavros/global_position/global', self.gps_callback, qos_profile=sensor_qos)
+        self.height_sub = self.create_subscription(Float64, '/dtc_mrsd/mavros/global_position/rel_alt', self.height_callback, qos_profile=sensor_qos)
         # Add subscription for heading
-        self.heading_sub = self.create_subscription(Float64, '/robot_1/mavros/global_position/compass_hdg', self.heading_callback, qos_profile=sensor_qos)
+        self.heading_sub = self.create_subscription(Float64, '/dtc_mrsd/mavros/global_position/compass_hdg', self.heading_callback, qos_profile=sensor_qos)
         
         # Add subscription for camera mode
         self.camera_mode_sub = self.create_subscription(String, '/camera_mode', self.camera_mode_callback, 10)
@@ -767,7 +767,7 @@ class IntegratedNode(Node):
             #### 2. ray cast gps 
             #### 3. stream lock on
             #### 4. /target_gps_list natsatfix
-            #### 5. /robot_1/mavros/global_position/global
+            #### 5. /dtc_mrsd/mavros/global_position/global
 
             self.gps_targets_list_pub.publish(msg)
             published_count += 1

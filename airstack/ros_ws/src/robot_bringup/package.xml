@@ -13,4 +13,5 @@
   <exec_depend>rtsp_forwarder</exec_depend>
   <exec_depend>burst_recorder</exec_depend>
   <exec_depend>gimbal_control</exec_depend>
+  <exec_depend>vision_gps_estimator</exec_depend>
 </package>

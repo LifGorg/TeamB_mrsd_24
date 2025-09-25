@@ -21,7 +21,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'rtsp_streamer_node = rtsp_streamer.rtsp_streamer_node:main',
+            'rtsp_streamer_node = rtsp_streamer.rtsp_streamer_node_gstreamer:main',
         ],
     },
 )

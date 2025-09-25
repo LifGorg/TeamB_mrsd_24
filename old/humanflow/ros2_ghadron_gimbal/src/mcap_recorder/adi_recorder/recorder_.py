@@ -17,7 +17,7 @@
 
 # #class to handle all the rtsp retrieval functions and stuff
 # class Streaming:
-#     rtsp_url = 'rtsp://10.3.1.124:8554/ghadron'
+#     rtsp_url = 'rtsp://10.3.1.124:8556/ghadron'
 #     WIDTH = 1280  # 1k resolution for adi recording
 #     HEIGHT = 720
 #     retry_max = 10
@@ -180,13 +180,13 @@
 #         # Create subscribers for drone telemetry data
 #         self.altitude_subscription = self.create_subscription(
 #             Float32,
-#             '/robot_1/mavros/altitude',
+#             '/dtc_mrsd/mavros/altitude',
 #             self.altitude_callback,
 #             10)
         
 #         self.rel_alt_subscription = self.create_subscription(
 #             Float32,
-#             '/robot_1/mavros/global_position/rel_alt',
+#             '/dtc_mrsd/mavros/global_position/rel_alt',
 #             self.rel_alt_callback,
 #             10)
             
@@ -199,20 +199,20 @@
         
 #         self.gps_subscription = self.create_subscription(
 #             NavSatFix,
-#             '/robot_1/mavros/global_position/global',
+#             '/dtc_mrsd/mavros/global_position/global',
 #             self.gps_callback,
 #             qos_profile=mavros_qos)
             
 #         self.imu_subscription = self.create_subscription(
 #             Imu,
-#             '/robot_1/mavros/imu/data',
+#             '/dtc_mrsd/mavros/imu/data',
 #             self.imu_callback,
 #             qos_profile=mavros_qos)
             
 #         # 添加罗盘航向订阅
 #         self.compass_hdg_subscription = self.create_subscription(
 #             Float32,
-#             '/robot_1/mavros/global_position/compass_hdg',
+#             '/dtc_mrsd/mavros/global_position/compass_hdg',
 #             self.compass_hdg_callback,
 #             qos_profile=mavros_qos)
         
@@ -274,11 +274,11 @@
 #                 "--max-bag-duration", "60",  # Create new file every 60 seconds
 #                 "--metadata-output-file", metadata_path,  
 #                 "/image_raw",
-#                 "/robot_1/mavros/altitude",
-#                 "/robot_1/mavros/global_position/rel_alt",
-#                 "/robot_1/mavros/global_position/global",
-#                 "/robot_1/mavros/imu/data",
-#                 "/robot_1/mavros/global_position/compass_hdg"
+#                 "/dtc_mrsd/mavros/altitude",
+#                 "/dtc_mrsd/mavros/global_position/rel_alt",
+#                 "/dtc_mrsd/mavros/global_position/global",
+#                 "/dtc_mrsd/mavros/imu/data",
+#                 "/dtc_mrsd/mavros/global_position/compass_hdg"
 #             ]
             
 #             # Start recording process

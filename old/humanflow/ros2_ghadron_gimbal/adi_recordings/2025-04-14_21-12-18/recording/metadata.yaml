@@ -8,25 +8,25 @@ rosbag2_bagfile_information:
   message_count: 45395
   topics_with_message_count:
     - topic_metadata:
-        name: /robot_1/mavros/imu/data
+        name: /dtc_mrsd/mavros/imu/data
         type: sensor_msgs/msg/Imu
         serialization_format: cdr
         offered_qos_profiles: "- history: 3\n  depth: 0\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
       message_count: 9312
     - topic_metadata:
-        name: /robot_1/mavros/global_position/global
+        name: /dtc_mrsd/mavros/global_position/global
         type: sensor_msgs/msg/NavSatFix
         serialization_format: cdr
         offered_qos_profiles: "- history: 3\n  depth: 0\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
       message_count: 9226
     - topic_metadata:
-        name: /robot_1/mavros/global_position/compass_hdg
+        name: /dtc_mrsd/mavros/global_position/compass_hdg
         type: std_msgs/msg/Float64
         serialization_format: cdr
         offered_qos_profiles: "- history: 3\n  depth: 0\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
       message_count: 9010
     - topic_metadata:
-        name: /robot_1/mavros/global_position/rel_alt
+        name: /dtc_mrsd/mavros/global_position/rel_alt
         type: std_msgs/msg/Float64
         serialization_format: cdr
         offered_qos_profiles: "- history: 3\n  depth: 0\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"

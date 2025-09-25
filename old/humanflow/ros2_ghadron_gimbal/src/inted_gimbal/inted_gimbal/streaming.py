@@ -14,7 +14,7 @@ from gi.repository import Gst, GLib, GstApp
 class Streaming:
     def __init__(self):
         # Configuration parameters
-        self.rtsp_url = 'rtsp://10.3.1.124:8554/ghadron'
+        self.rtsp_url = 'rtsp://10.3.1.124:8556/ghadron'
         self.WIDTH = 640
         self.HEIGHT = 512
         self.fps = 10
@@ -235,7 +235,7 @@ def main():
 
     # --- Configuration ---
     # Replace with your actual RTSP stream URL
-    rtsp_url = "rtsp://10.3.1.124:8554/ghadron"
+    rtsp_url = "rtsp://10.3.1.124:8556/ghadron"
     # Example: rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mov
 
     # --- Initialization ---

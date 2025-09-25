@@ -86,7 +86,7 @@ The container also has the isaacsim ROS2 package within that can be launched wit
 
 ### Robot
 
-Start a bash shell in a robot container, e.g. for robot_1:
+Start a bash shell in a robot container, e.g. for dtc_mrsd:
 
 ```bash
 docker exec -it airstack-robot-1 bash

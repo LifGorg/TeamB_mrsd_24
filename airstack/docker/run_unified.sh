@@ -3,29 +3,21 @@ set -euo pipefail
 
 # Launch a unified container on NVIDIA Orin NX using the known-good AirStack L4T image,
 # mounting this repo's ROS workspace and using host networking and NVIDIA runtime.
-#
-# Build behavior:
-# - By default, performs incremental builds to save time
-# - Set FORCE_REBUILD=true to force a complete rebuild from scratch
-# - Example: FORCE_REBUILD=true ./run_unified.sh
 
 REPO_ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 ROS_WS_HOST="${REPO_ROOT_DIR}/ros_ws"
 
-# Resolve local image to use (no pulling). Prefer the GStreamer-fixed image first
-GSTREAMER_FIXED_IMAGE="airstack-unified:gstreamer-fixed"
-if docker image inspect "${GSTREAMER_FIXED_IMAGE}" >/dev/null 2>&1; then
-	IMAGE="${GSTREAMER_FIXED_IMAGE}"
-fi
-
-# Fallback: Prefer the running 'airstack-robot_l4t-1' container's image, else any local *_robot-l4t image
-if [ -z "${IMAGE:-}" ]; then
-	PREFERRED_CONTAINER="airstack-robot_l4t-1"
-	if docker ps -a --format '{{.Names}}' | grep -q "^${PREFERRED_CONTAINER}$"; then
-		IMAGE=$(docker inspect -f '{{.Config.Image}}' ${PREFERRED_CONTAINER} 2>/dev/null || true)
-	fi
-fi
-if [ -z "${IMAGE:-}" ]; then
+# Resolve local image to use (no pulling). Prefer our GStreamer-enabled image first
+# Check if our vision-deps GStreamer image exists (with all dependencies)
+if docker image inspect "airstack-unified:gpu-enabled" >/dev/null 2>&1; then
+	IMAGE="airstack-unified:gpu-enabled"
+# Fallback to permanent GStreamer image
+elif docker image inspect "airstack-unified:gstreamer-vision-deps" >/dev/null 2>&1; then
+	IMAGE="airstack-unified:gstreamer-vision-deps"
+elif [ -n "${IMAGE:-}" ]; then
+	# Use explicitly set IMAGE if provided
+	echo "Using explicitly set image: ${IMAGE}"
+else
 	# fallback: find any local image tagged *_robot-l4t
 	IMAGE=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '_robot-l4t$' | head -n1 || true)
 fi
@@ -80,7 +72,7 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
 fi
 
 # Sanitize robot name for ROS namespace (allow only [A-Za-z0-9_])
-HOST_ROBOT_NAME=${ROBOT_NAME:-robot_1}
+HOST_ROBOT_NAME=${ROBOT_NAME:-dtc_mrsd}
 ROBOT_NAME_SANITIZED=$(echo "$HOST_ROBOT_NAME" | tr -c '[:alnum:]_' '_')
 
 # Run container
@@ -94,7 +86,7 @@ docker run -d \
 	-e ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-70} \
 		-e ROBOT_NAME=${ROBOT_NAME_SANITIZED} \
 		-e ROBOT_NAMESPACE=${ROBOT_NAME_SANITIZED} \
-		-e FORCE_REBUILD=${FORCE_REBUILD:-false} \
+		-e CLEAN_BUILD=${CLEAN_BUILD:-} \
 	"${XAUTH_OPTION[@]}" \
 	-v "${ROS_WS_HOST}":/root/ros_ws:rw \
 	-v /var/run/docker.sock:/var/run/docker.sock \
@@ -102,17 +94,20 @@ docker run -d \
 	bash --noprofile --norc -lc "set -e; \
 		service ssh restart; \
 		source /opt/ros/humble/setup.bash; \
-		cd /root/ros_ws; \
-		if [ \"\${FORCE_REBUILD:-false}\" = \"true\" ]; then \
-			echo 'Force rebuilding workspace (FORCE_REBUILD=true)...'; \
-			rm -rf build install log && colcon build --symlink-install --merge-install; \
-		elif [ ! -f /root/ros_ws/install/share/rtsp_streamer/package.xml ] || [ ! -x /root/ros_ws/install/lib/rtsp_streamer/rtsp_streamer_node ]; then \
-			echo 'Building workspace (missing packages detected)...'; \
-			colcon build --symlink-install --merge-install; \
+		if [ \"\${CLEAN_BUILD:-}\" = \"1\" ]; then \
+			echo 'Clean build requested - removing build artifacts...'; \
+			cd /root/ros_ws && rm -rf build install log; \
+			echo 'Performing clean build...'; \
+			cd /root/ros_ws && colcon build --symlink-install --merge-install; \
+		elif [ ! -f /root/ros_ws/install/share/robot_bringup/package.xml ] || [ ! -f /root/ros_ws/install/share/rtsp_streamer/package.xml ] || [ ! -x /root/ros_ws/install/lib/rtsp_streamer/rtsp_streamer_node ]; then \
+			echo 'Rebuilding workspace (missing packages detected)...'; \
+			cd /root/ros_ws && colcon build --symlink-install --merge-install; \
 		else \
-			echo 'Workspace appears to be built, performing incremental build...'; \
-			colcon build --symlink-install --merge-install --packages-select-by-dep rtsp_forwarder rtsp_streamer mavros_interface gimbal_control vision_gps_estimator behavior_governor burst_recorder; \
+			echo 'Workspace appears built, performing incremental build...'; \
+			cd /root/ros_ws && colcon build --symlink-install --merge-install; \
 		fi; \
+		mkdir -p /root/ros_ws/install/lib/vision_gps_estimator; \
+		ln -sf /root/ros_ws/install/bin/integrated_node /root/ros_ws/install/lib/vision_gps_estimator/integrated_node 2>/dev/null || true; \
 		unset AMENT_PREFIX_PATH COLCON_PREFIX_PATH CMAKE_PREFIX_PATH; \
 		source /root/ros_ws/install/setup.bash; \
 		env | egrep 'AMENT_PREFIX_PATH|COLCON_PREFIX_PATH|CMAKE_PREFIX_PATH' || true; \

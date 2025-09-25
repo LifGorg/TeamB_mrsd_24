@@ -1,11 +1,15 @@
+#!/usr/bin/env python3
 import time
 import os
 import threading
 import subprocess
 from rclpy.node import Node
 import rclpy
-from sensor_msgs.msg import Image, CompressedImage
-from std_msgs.msg import Bool
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
+from sensor_msgs.msg import Image, CompressedImage, NavSatFix, NavSatStatus
+from std_msgs.msg import Bool, Header, Float64
+from dtc_network_msgs.msg import HumanDataMsg
+from builtin_interfaces.msg import Time
 import numpy as np
 
 # Check OpenCV availability
@@ -18,9 +22,9 @@ except ImportError as e:
     print(f"OpenCV not available: {e}")
     CV_AVAILABLE = False
 
-class BurstModeRecorder(Node):
+class HumanDataPublisherRecorder(Node):
     def __init__(self):
-        super().__init__('burst_recorder_node')
+        super().__init__('human_data_publisher_recorder')
         
         # Check if OpenCV is available
         if not CV_AVAILABLE:
@@ -28,29 +32,36 @@ class BurstModeRecorder(Node):
             raise RuntimeError("OpenCV not available")
         
         # Declare all parameters with defaults
-        self.declare_parameter('compressed_image_topic', '/image_raw_compressed')
+        self.declare_parameter('image_topic', '/image_raw')
         self.declare_parameter('mcap_dir', '/root/ros_ws/mcap_recordings')
-        self.declare_parameter('fps', 24)
-        self.declare_parameter('duration_sec', 10)
-        default_topics = [
-            '/camera/image_raw',
-            '/dtc_mrsd_/mavros/global_position/global',
-            '/dtc_mrsd_/mavros/global_position/rel_alt', 
-            '/dtc_mrsd_/mavros/imu/data',
-            '/dtc_mrsd_/mavros/global_position/compass_hdg'
-        ]
+        self.declare_parameter('burst_fps', 2)  # FPS during burst recording
+        self.declare_parameter('publish_fps', 3)  # Normal publishing FPS
+        self.declare_parameter('burst_duration_sec', 6)
+        self.declare_parameter('system_name', 'mrsd_drone')
+        self.declare_parameter('enable_continuous_publish', True)  # Enable continuous publishing
+        # HumanDataMsg will be recorded instead of individual topics
+        default_topics = ['/human_data']
         self.declare_parameter('topics_to_record', default_topics)
         
         # Get parameters
-        self.compressed_image_topic = self.get_parameter('compressed_image_topic').get_parameter_value().string_value
+        self.image_topic = self.get_parameter('image_topic').get_parameter_value().string_value
         self.mcap_dir = self.get_parameter('mcap_dir').get_parameter_value().string_value
-        self.duration_sec = self.get_parameter('duration_sec').get_parameter_value().integer_value
-        self.fps = self.get_parameter('fps').get_parameter_value().integer_value
+        self.burst_duration_sec = self.get_parameter('burst_duration_sec').get_parameter_value().integer_value
+        self.burst_fps = self.get_parameter('burst_fps').get_parameter_value().integer_value
+        self.publish_fps = self.get_parameter('publish_fps').get_parameter_value().integer_value
+        self.system_name = self.get_parameter('system_name').get_parameter_value().string_value
+        self.enable_continuous_publish = self.get_parameter('enable_continuous_publish').get_parameter_value().bool_value
         self.topics_to_record = self.get_parameter('topics_to_record').get_parameter_value().string_array_value or default_topics
         
         # Initialize OpenCV components
         self.bridge = CvBridge()
-        self.publisher = self.create_publisher(Image, '/camera/image_raw', 10)
+        
+        # Publisher for HumanDataMsg
+        self.human_data_publisher = self.create_publisher(HumanDataMsg, '/human_data', 10)
+        
+        # State variables for GPS data
+        self.latest_gps = None
+        self.gps_lock = threading.Lock()
         
         # Create output directory
         try:
@@ -67,18 +78,34 @@ class BurstModeRecorder(Node):
         
         # Image processing state
         self.latest_frame = None
+        self.latest_raw_msg = None
         self.frame_lock = threading.Lock()
         self.last_frame_time = 0
         
-        # Subscribe to compressed image from rtsp_streamer
+        # Create QoS profile for MAVROS compatibility
+        mavros_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        
+        # Subscribe to raw image from rtsp_streamer
         self.image_sub = self.create_subscription(
-            CompressedImage,
-            self.compressed_image_topic,
-            self.compressed_image_callback,
+            Image,
+            self.image_topic,
+            self.image_callback,
             10
         )
         
-        # Control subscription
+        # Subscribe to GPS data from MAVROS
+        self.gps_sub = self.create_subscription(
+            NavSatFix,
+            '/dtc_mrsd_/mavros/global_position/global',
+            self.gps_callback,
+            mavros_qos
+        )
+        
+        # Control subscription for burst mode
         self.control_sub = self.create_subscription(
             Bool,
             '/burst_mode/control',
@@ -86,25 +113,90 @@ class BurstModeRecorder(Node):
             10
         )
         
-        self.get_logger().info(f"Subscribed to compressed image topic: {self.compressed_image_topic}")
+        self.get_logger().info(f"Subscribed to raw image topic: {self.image_topic}")
+        self.get_logger().info(f"Publishing HumanDataMsg to /human_data topic")
+        self.get_logger().info(f"System name: {self.system_name}")
+        self.get_logger().info(f"Continuous publishing: {'Enabled' if self.enable_continuous_publish else 'Disabled'}")
         
-        # Auto-start burst mode on initialization
-        self.get_logger().info("Auto-starting burst mode...")
-        self.start_burst_mode()
+        # Timer for continuous publishing
+        if self.enable_continuous_publish:
+            publish_period = 1.0 / self.publish_fps
+            self.publish_timer = self.create_timer(publish_period, self.publish_human_data)
+            self.get_logger().info(f"Continuous publishing at {self.publish_fps} Hz")
+        
+        # Auto-start burst mode on initialization (optional)
+        # self.start_burst_mode()
 
-    def compressed_image_callback(self, msg):
-        """Callback for compressed image from rtsp_streamer"""
+    def image_callback(self, msg):
+        """Callback for raw image from rtsp_streamer"""
         try:
-            # Decompress image
-            np_arr = np.frombuffer(msg.data, np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            # Convert ROS Image message to OpenCV format
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             
             if frame is not None:
                 with self.frame_lock:
                     self.latest_frame = frame
                     self.last_frame_time = time.time()
+                    # Store the raw image message for HumanDataMsg
+                    self.latest_raw_msg = msg
         except Exception as e:
-            self.get_logger().warning(f"Failed to decompress image: {e}")
+            self.get_logger().warning(f"Failed to convert image: {e}")
+    
+    def gps_callback(self, msg):
+        """Callback for GPS data from MAVROS"""
+        with self.gps_lock:
+            self.latest_gps = msg
+    
+    def publish_human_data(self):
+        """Publish HumanDataMsg with current data (for continuous publishing)"""
+        with self.frame_lock:
+            raw_msg = self.latest_raw_msg
+            frame_time = self.last_frame_time
+        
+        with self.gps_lock:
+            gps_data = self.latest_gps
+        
+        # Only publish if we have image data
+        if raw_msg is not None:
+            current_time = time.time()
+            # Check if frame is recent (within 2 seconds)
+            if current_time - frame_time < 2.0:
+                human_data_msg = self.create_human_data_msg(raw_msg, gps_data)
+                self.human_data_publisher.publish(human_data_msg)
+    
+    def create_human_data_msg(self, raw_image_msg, gps_data):
+        """Create HumanDataMsg from raw image and GPS data"""
+        human_data_msg = HumanDataMsg()
+        
+        # Set header
+        human_data_msg.header = Header()
+        human_data_msg.header.stamp = self.get_clock().now().to_msg()
+        human_data_msg.header.frame_id = 'base_link'
+        
+        # Set timestamp
+        human_data_msg.stamp = self.get_clock().now().to_msg()
+        
+        # Set system name
+        human_data_msg.system = self.system_name
+        
+        # Set GPS data (if available)
+        if gps_data is not None:
+            human_data_msg.gps_data = gps_data
+        else:
+            # Create empty GPS data if not available
+            human_data_msg.gps_data = NavSatFix()
+            human_data_msg.gps_data.header.stamp = self.get_clock().now().to_msg()
+            human_data_msg.gps_data.header.frame_id = 'base_link'
+            human_data_msg.gps_data.status.status = NavSatStatus.STATUS_NO_FIX
+            human_data_msg.gps_data.status.service = NavSatStatus.SERVICE_GPS
+        
+        # Set raw image data
+        human_data_msg.raw_images = [raw_image_msg]
+        
+        # Leave compressed images empty (since we're using raw images)
+        human_data_msg.compressed_images = []
+        
+        return human_data_msg
 
     def control_callback(self, msg):
         if msg.data:
@@ -128,14 +220,14 @@ class BurstModeRecorder(Node):
             self.burst_thread.join()
 
     def _burst_loop(self):
-        self.get_logger().info(f'Starting burst loop, using compressed images from: {self.compressed_image_topic}')
+        self.get_logger().info(f'Starting burst recording with high-rate publishing at {self.burst_fps} Hz')
         
         try:
             while self.burst_mode:
                 # Wait for first frame
                 self.get_logger().info('Waiting for compressed image data...')
                 timeout_start = time.time()
-                while self.latest_frame is None and self.burst_mode:
+                while self.latest_compressed_msg is None and self.burst_mode:
                     time.sleep(0.1)
                     if time.time() - timeout_start > 10.0:  # 10 second timeout
                         self.get_logger().warning('Timeout waiting for compressed image data')
@@ -144,7 +236,7 @@ class BurstModeRecorder(Node):
                 if not self.burst_mode:
                     break
                     
-                self.get_logger().info('Compressed image data received, starting recording session')
+                self.get_logger().info('Starting burst recording session')
                 
                 timestamp = time.strftime('%Y%m%d_%H%M%S')
                 mcap_path = os.path.join(self.mcap_dir, f'burst_{timestamp}')
@@ -158,30 +250,29 @@ class BurstModeRecorder(Node):
                 frame_count = 0
                 last_publish_time = 0
                 
-                while time.time() - start_time < self.duration_sec and self.burst_mode:
+                # High-rate publishing during burst mode
+                while time.time() - start_time < self.burst_duration_sec and self.burst_mode:
                     current_time = time.time()
                     
-                    # Check if we should publish a frame based on target FPS
-                    if current_time - last_publish_time >= (1.0 / self.fps):
+                    # Check if we should publish a frame based on burst FPS
+                    if current_time - last_publish_time >= (1.0 / self.burst_fps):
                         with self.frame_lock:
-                            if self.latest_frame is not None:
-                                frame = self.latest_frame.copy()
-                                frame_time = self.last_frame_time
-                            else:
-                                frame = None
-                                frame_time = 0
+                            compressed_msg = self.latest_compressed_msg
+                            frame_time = self.last_frame_time
                         
-                        if frame is not None:
+                        with self.gps_lock:
+                            gps_data = self.latest_gps
+                        
+                        if compressed_msg is not None:
                             # Check if frame is recent (within 2 seconds)
                             if current_time - frame_time < 2.0:
                                 frame_count += 1
-                                if frame_count % max(1, self.fps) == 1:  # Log every second worth of frames
-                                    self.get_logger().info(f'Processing frame {frame_count}, elapsed: {current_time - start_time:.1f}s')
+                                if frame_count % max(1, self.burst_fps) == 1:  # Log every second worth of frames
+                                    self.get_logger().info(f'Burst publishing frame {frame_count}, elapsed: {current_time - start_time:.1f}s')
                                 
-                                img_msg = self.bridge.cv2_to_imgmsg(frame, 'bgr8')
-                                img_msg.header.stamp = self.get_clock().now().to_msg()
-                                img_msg.header.frame_id = 'camera'
-                                self.publisher.publish(img_msg)
+                                # Create and publish HumanDataMsg
+                                human_data_msg = self.create_human_data_msg(compressed_msg, gps_data)
+                                self.human_data_publisher.publish(human_data_msg)
                                 
                                 last_publish_time = current_time
                             else:
@@ -189,7 +280,7 @@ class BurstModeRecorder(Node):
                     
                     time.sleep(0.01)  # Small sleep to prevent busy waiting
                 
-                self.get_logger().info(f'Burst recording completed. Total frames: {frame_count}')
+                self.get_logger().info(f'Burst recording completed. Total HumanDataMsg published: {frame_count}')
                 if self.bag_process:
                     self.bag_process.terminate()
                     self.bag_process.wait()
@@ -204,9 +295,11 @@ class BurstModeRecorder(Node):
 
 def main():
     rclpy.init()
-    recorder = BurstModeRecorder()
+    recorder = HumanDataPublisherRecorder()
     try:
-        recorder.get_logger().info("BurstRecorder node started. Use /burst_mode/control topic to control burst mode.")
+        recorder.get_logger().info("HumanDataPublisherRecorder node started.")
+        recorder.get_logger().info("Continuously publishing HumanDataMsg at configured rate.")
+        recorder.get_logger().info("Use /burst_mode/control topic to trigger high-rate burst recording.")
         rclpy.spin(recorder)
     except KeyboardInterrupt:
         recorder.stop_burst_mode()

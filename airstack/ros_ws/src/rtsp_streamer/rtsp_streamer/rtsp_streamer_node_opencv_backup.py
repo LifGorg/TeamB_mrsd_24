@@ -172,7 +172,7 @@ class RtspStreamer(Node):
         """Generate a synthetic frame for testing"""
         # Create a test pattern
         width = self.width or 640
-        height = self.height or 360
+        height = self.height or 512
         
         # Create gradient background using vectorized operations for efficiency
         frame = np.zeros((height, width, 3), dtype=np.uint8)

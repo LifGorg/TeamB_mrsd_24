@@ -126,7 +126,7 @@ Set before invoking `run_unified.sh` to override defaults:
 
 | Variable        | Purpose                                    | Default |
 |-----------------|--------------------------------------------|---------|
-| `ROBOT_NAME`    | Logical robot name (sanitized to namespace)| `robot_1` |
+| `ROBOT_NAME`    | Logical robot name (sanitized to namespace)| `dtc_mrsd` |
 | `ROBOT_NAMESPACE` | (Derived) ROS namespace                  | (sanitized `ROBOT_NAME`) |
 | `ROS_DOMAIN_ID` | DDS domain isolation                       | `70` |
 
