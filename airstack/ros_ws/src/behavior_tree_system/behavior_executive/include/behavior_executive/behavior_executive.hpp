@@ -1,10 +1,6 @@
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 
-#include <airstack_common/ros2_helper.hpp>
-#include <airstack_msgs/srv/robot_command.hpp>
-#include <airstack_msgs/srv/takeoff_landing_command.hpp>
-#include <airstack_msgs/srv/trajectory_mode.hpp>
 #include <behavior_tree/behavior_tree.hpp>
 #include <behavior_tree_msgs/msg/behavior_tree_commands.hpp>
 #include <mavros_msgs/msg/waypoint.hpp>
@@ -14,18 +10,18 @@
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <mavros_msgs/srv/waypoint_clear.hpp>
 #include <mavros_msgs/srv/waypoint_push.hpp>
-#include <mavros_adapter_interface.hpp>
+#include <behavior_executive/mavros_adapter_interface.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <std_msgs/msg/int8.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
-#include <transition_logger.hpp>
-#include <action_handlers/geofence_mapping_handler.hpp>
-#include <action_handlers/navigate_to_waypoint_handler.hpp>
-#include <action_handlers/search_handler.hpp>
-#include <action_handlers/survey_handler.hpp>
-#include <mission_planning/geometry_utils.hpp>
-#include <mission_planning/waypoint_generator.hpp>
+#include <behavior_executive/behavior_logger.hpp>
+#include <behavior_executive/action_handlers/geofence_mapping_handler.hpp>
+#include <behavior_executive/action_handlers/navigate_to_waypoint_handler.hpp>
+#include <behavior_executive/action_handlers/search_handler.hpp>
+#include <behavior_executive/action_handlers/survey_handler.hpp>
+#include <behavior_executive/mission_planning/geometry_utils.hpp>
+#include <behavior_executive/mission_planning/waypoint_generator.hpp>
 #include <vector>
 // #include <vision_msgs/msg/detection2_d_array.hpp>
 
@@ -111,8 +107,8 @@ class BehaviorExecutive : public rclcpp::Node {
     // MAVROS 适配器（依赖注入）
     std::shared_ptr<IMavrosAdapter> mavros_adapter_;
 
-    // 状态机转换记录器
-    std::unique_ptr<TransitionLogger> transition_logger_;
+    // 行为状态记录器
+    std::unique_ptr<BehaviorLogger> behavior_logger_;
 
     // 动作处理器（新架构）
     std::shared_ptr<GeometryUtils> geometry_utils_;

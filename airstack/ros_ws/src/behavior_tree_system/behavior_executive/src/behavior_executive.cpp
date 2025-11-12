@@ -1,6 +1,5 @@
 #include <rmw/qos_profiles.h>  // For rmw_qos_profile_services_default
 
-#include <airstack_msgs/srv/trajectory_mode.hpp>
 #include <algorithm>  // For std::min, std::max
 #include <chrono>                             // For std::chrono_literals
 #include <cmath>       // For std::cos, std::sin, std::sqrt, M_PI, std::asin, std::abs
@@ -18,18 +17,18 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 
 // Mission planning utilities (must be before behavior_executive.hpp)
-#include <mission_planning/geometry_utils.hpp>
-#include <mission_planning/waypoint_generator.hpp>
+#include <behavior_executive/mission_planning/geometry_utils.hpp>
+#include <behavior_executive/mission_planning/waypoint_generator.hpp>
 
 // Action handlers (must be before behavior_executive.hpp)
-#include <action_handlers/geofence_mapping_handler.hpp>
-#include <action_handlers/navigate_to_waypoint_handler.hpp>
-#include <action_handlers/search_handler.hpp>
-#include <action_handlers/survey_handler.hpp>
+#include <behavior_executive/action_handlers/geofence_mapping_handler.hpp>
+#include <behavior_executive/action_handlers/navigate_to_waypoint_handler.hpp>
+#include <behavior_executive/action_handlers/search_handler.hpp>
+#include <behavior_executive/action_handlers/survey_handler.hpp>
 
 // Now include behavior_executive and mavros_adapter
-#include <behavior_executive.hpp>
-#include <mavros_adapter.hpp>
+#include <behavior_executive/behavior_executive.hpp>
+#include <behavior_executive/mavros_adapter.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <vector>  // For std::vector
 
@@ -45,8 +44,8 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
         mavros_adapter_ = mavros_adapter;
     }
 
-    // 初始化转换记录器
-    transition_logger_ = std::make_unique<TransitionLogger>(
+    // 初始化行为记录器
+    behavior_logger_ = std::make_unique<BehaviorLogger>(
         this,
         "",     // 使用默认目录
         true,   // 输出到控制台
@@ -155,13 +154,13 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
             "behavior_tree_commands", 1,
             std::bind(&BehaviorExecutive::bt_commands_callback, this, std::placeholders::_1));
     state_sub = this->create_subscription<mavros_msgs::msg::State>(
-        "/mavros/state", rclcpp::QoS(10).best_effort(),
+        "mavros/state", rclcpp::QoS(10).best_effort(),
         std::bind(&BehaviorExecutive::state_callback, this, std::placeholders::_1));
     current_gps_sub = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-        "/mavros/global_position/global", rclcpp::QoS(10).best_effort(),
+        "mavros/global_position/global", rclcpp::QoS(10).best_effort(),
         std::bind(&BehaviorExecutive::current_gps_callback, this, std::placeholders::_1));
     relative_altitude_sub = this->create_subscription<std_msgs::msg::Float64>(
-        "/mavros/global_position/rel_alt", rclcpp::QoS(10).best_effort(),
+        "mavros/global_position/rel_alt", rclcpp::QoS(10).best_effort(),
         std::bind(&BehaviorExecutive::relative_altitude_callback, this, std::placeholders::_1));
     target_waypoint_sub = this->create_subscription<sensor_msgs::msg::NavSatFix>(
         "target_waypoint", rclcpp::QoS(10).best_effort(),
@@ -171,7 +170,7 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
         std::bind(&BehaviorExecutive::set_target_altitude_callback, this, std::placeholders::_1));
 
     geofence_sub = this->create_subscription<mavros_msgs::msg::WaypointList>(
-        "/robot_1/mavros/geofence/fences", rclcpp::QoS(10).durability_volatile().transient_local(),
+        "mavros/geofence/fences", rclcpp::QoS(10).durability_volatile().transient_local(),
         std::bind(&BehaviorExecutive::geofence_callback, this, std::placeholders::_1));
     target_gps_list_sub = this->create_subscription<sensor_msgs::msg::NavSatFix>(
         "/target_gps_list", 10,
@@ -518,8 +517,8 @@ void BehaviorExecutive::bt_commands_callback(behavior_tree_msgs::msg::BehaviorTr
                 }
                 
                 // 如果值发生了变化，记录到日志
-                if (old_value != new_value && transition_logger_) {
-                    transition_logger_->log_condition_change(
+                if (old_value != new_value && behavior_logger_) {
+                    behavior_logger_->log_condition_change(
                         condition_name,
                         old_value,
                         new_value);
@@ -720,13 +719,13 @@ void BehaviorExecutive::log_action_transition(
     const std::string& failure_reason,
     const std::string& additional_info) {
     
-    if (!transition_logger_) {
+    if (!behavior_logger_) {
         return;  // Logger not initialized
     }
     
     std::map<std::string, bool> conditions = get_related_conditions(action);
     
-    transition_logger_->log_action_transition(
+    behavior_logger_->log_action_transition(
         action->get_label(),
         status,
         conditions,

@@ -150,3 +150,5 @@ airstack/ros_ws/mcap_recordings
 
 # Submodule ignores
 mavproxy/
+airstack/librealsense/
+*.whl

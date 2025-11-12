@@ -1,4 +1,4 @@
-#include "mavros_adapter.hpp"
+#include "behavior_executive/mavros_adapter.hpp"
 
 #include <chrono>
 #include <mavros_msgs/msg/waypoint.hpp>
@@ -21,7 +21,7 @@ MavrosAdapter::MavrosAdapter(rclcpp::Node* node) : node_(node) {
         node_->create_client<mavros_msgs::srv::WaypointPush>("mavros/mission/push");
     
     waypoint_clear_client_ =
-        node_->create_client<mavros_msgs::srv::WaypointClear>("/robot_1/mavros/mission/clear");
+        node_->create_client<mavros_msgs::srv::WaypointClear>("mavros/mission/clear");
 
     // 创建发布者
     gimbal_command_pub_ = node_->create_publisher<std_msgs::msg::String>("/gimbal_command", 10);

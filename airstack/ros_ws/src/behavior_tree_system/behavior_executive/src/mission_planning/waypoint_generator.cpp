@@ -1,5 +1,5 @@
-#include "mission_planning/waypoint_generator.hpp"
-#include "mission_planning/geometry_utils.hpp"
+#include "behavior_executive/mission_planning/waypoint_generator.hpp"
+#include "behavior_executive/mission_planning/geometry_utils.hpp"
 
 #include <algorithm>
 #include <cmath>

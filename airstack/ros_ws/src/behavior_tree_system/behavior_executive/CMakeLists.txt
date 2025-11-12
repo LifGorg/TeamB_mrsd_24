@@ -12,16 +12,18 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(behavior_tree REQUIRED)
 find_package(behavior_tree_msgs REQUIRED)
-find_package(airstack_msgs REQUIRED)
-find_package(airstack_common REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 add_executable(behavior_executive
   src/behavior_executive.cpp
   src/mavros_adapter.cpp
-  src/transition_logger.cpp
+  src/behavior_logger.cpp
   src/action_handlers/geofence_mapping_handler.cpp
   src/action_handlers/navigate_to_waypoint_handler.cpp
   src/action_handlers/search_handler.cpp
@@ -38,39 +40,41 @@ ament_target_dependencies(behavior_executive
   std_msgs
   std_srvs
   sensor_msgs
+  nav_msgs
+  geometry_msgs
   mavros_msgs
   behavior_tree
   behavior_tree_msgs
-  airstack_msgs
-  airstack_common
+  tf2
+  tf2_geometry_msgs
 )
 
 install(TARGETS behavior_executive
   DESTINATION lib/${PROJECT_NAME})
 
-# Install Python test scripts
-install(PROGRAMS
-  test/transition_tester.py
-  test/complete_transition_tester.py
-  test/validate_transitions.py
-  test/mock_mavros.py
-  test/safety_tester.py
-  test/analyze_safety.py
-  test/geofence_mapping_tester.py
-  test/analyze_geofence_mapping.py
-  DESTINATION lib/${PROJECT_NAME}
-)
+# Install Python test scripts (commented out - files don't exist yet)
+# install(PROGRAMS
+#   test/transition_tester.py
+#   test/complete_transition_tester.py
+#   test/validate_transitions.py
+#   test/mock_mavros.py
+#   test/safety_tester.py
+#   test/analyze_safety.py
+#   test/geofence_mapping_tester.py
+#   test/analyze_geofence_mapping.py
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 
-# Install config files
-install(DIRECTORY config/
-  DESTINATION share/${PROJECT_NAME}/config
-)
+# Install config files (commented out - directory doesn't exist yet)
+# install(DIRECTORY config/
+#   DESTINATION share/${PROJECT_NAME}/config
+# )
 
-# Install documentation
-install(FILES
-  TRANSITION_LOGGING.md
-  DESTINATION share/${PROJECT_NAME}
-)
+# Install documentation (commented out - files don't exist yet)
+# install(FILES
+#   TRANSITION_LOGGING.md
+#   DESTINATION share/${PROJECT_NAME}
+# )
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -83,44 +87,44 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
   
-  # 添加 C++ 单元测试
-  find_package(ament_cmake_gtest REQUIRED)
-  
-  ament_add_gtest(test_geofence_handler
-    test/test_geofence_handler.cpp
-    src/action_handlers/geofence_mapping_handler.cpp
-    src/mission_planning/waypoint_generator.cpp
-    src/mission_planning/geometry_utils.cpp
-  )
-  
-  target_include_directories(test_geofence_handler PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-  )
-  
-  ament_target_dependencies(test_geofence_handler
-    rclcpp
-    sensor_msgs
-    mavros_msgs
-    behavior_tree
-  )
-  
-  ament_add_gtest(test_navigate_to_waypoint_handler
-    test/test_navigate_to_waypoint_handler.cpp
-    src/action_handlers/navigate_to_waypoint_handler.cpp
-  )
-  
-  target_include_directories(test_navigate_to_waypoint_handler PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-  )
-  
-  ament_target_dependencies(test_navigate_to_waypoint_handler
-    rclcpp
-    sensor_msgs
-    mavros_msgs
-    behavior_tree
-  )
+  # TODO: 添加 C++ 单元测试（测试文件暂未创建）
+  # find_package(ament_cmake_gtest REQUIRED)
+  # 
+  # ament_add_gtest(test_geofence_handler
+  #   test/test_geofence_handler.cpp
+  #   src/action_handlers/geofence_mapping_handler.cpp
+  #   src/mission_planning/waypoint_generator.cpp
+  #   src/mission_planning/geometry_utils.cpp
+  # )
+  # 
+  # target_include_directories(test_geofence_handler PUBLIC
+  #   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  #   $<INSTALL_INTERFACE:include>
+  # )
+  # 
+  # ament_target_dependencies(test_geofence_handler
+  #   rclcpp
+  #   sensor_msgs
+  #   mavros_msgs
+  #   behavior_tree
+  # )
+  # 
+  # ament_add_gtest(test_navigate_to_waypoint_handler
+  #   test/test_navigate_to_waypoint_handler.cpp
+  #   src/action_handlers/navigate_to_waypoint_handler.cpp
+  # )
+  # 
+  # target_include_directories(test_navigate_to_waypoint_handler PUBLIC
+  #   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  #   $<INSTALL_INTERFACE:include>
+  # )
+  # 
+  # ament_target_dependencies(test_navigate_to_waypoint_handler
+  #   rclcpp
+  #   sensor_msgs
+  #   mavros_msgs
+  #   behavior_tree
+  # )
 endif()
 
 ament_package()

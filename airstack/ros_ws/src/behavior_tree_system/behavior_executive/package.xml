@@ -18,17 +18,16 @@
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   
+  <!-- TF2 -->
+  <depend>tf2</depend>
+  <depend>tf2_geometry_msgs</depend>
+  
   <!-- MAVROS -->
   <depend>mavros_msgs</depend>
   
   <!-- Behavior Tree (required) -->
   <depend>behavior_tree</depend>
   <depend>behavior_tree_msgs</depend>
-  
-  <!-- Optional: Custom message packages -->
-  <!-- Uncomment if using airstack_msgs in your system -->
-  <!-- <depend>airstack_msgs</depend> -->
-  <!-- <depend>airstack_common</depend> -->
   
   <!-- Vision (optional) -->
   <depend>vision_msgs</depend>

@@ -1,43 +1,43 @@
-<!-- ROBOT - Simplified with only RTSP and Burst nodes -->
+<!-- ROBOT - Complete System Launch with all components -->
 <launch>
   <push_ros_namespace namespace="$(env ROBOT_NAMESPACE)" />
   <set_parameter name="use_sim_time" value="false" />
   
-  <!-- Low-latency operator preview stream (compressed ~5 fps) -->
-  <node pkg="rtsp_streamer" exec="rtsp_streamer_node" output="screen" respawn="true" respawn_delay="2">
-    <param name="rtsp_url" value="rtsp://10.3.1.124:8556/ghadron"/>
-    <param name="topic" value="/image_raw_compressed"/>
-    <param name="fps" value="2.0"/>
-    <param name="width" value="640"/>
-    <param name="height" value="512"/>
-    <param name="jpeg_quality" value="50"/>
-    <param name="rtsp_latency_ms" value="200"/>
-    <param name="prefer_tcp" value="true"/>
-    <param name="test_mode" value="false"/>
+  <!-- MAVROS Interface for flight controller communication -->
+  <include file="$(find-pkg-share mavros_interface)/launch/px4.launch">
+    <arg name="fcu_url" value="serial:///dev/ttyACM0:57600"/>
+    <arg name="gcs_url" value="udp://@10.3.1.10:14550"/>
+    <arg name="tgt_system" value="1"/>
+    <arg name="tgt_component" value="1"/>
+    <arg name="log_output" value="screen"/>
+    <arg name="fcu_protocol" value="v2.0"/>
+    <arg name="respawn_mavros" value="true"/>
+    <arg name="namespace" value="mavros"/>
+  </include>
+
+
+  <!-- Behavior Tree System -->
+  <!-- Behavior Tree Engine - parses and executes behavior tree -->
+  <node pkg="behavior_tree" exec="behavior_tree_implementation" output="screen" respawn="true" respawn_delay="3">
+    <param name="config" value="$(find-pkg-share behavior_tree)/config/drone.tree"/>
+  </node>
+  
+  <!-- Behavior Executive - implements mission behaviors and MAVROS integration -->
+  <node pkg="behavior_executive" exec="behavior_executive" output="screen" respawn="true" respawn_delay="3">
+    <!-- Node subscribes to behavior tree commands and interfaces with MAVROS -->
   </node>
 
-  <!-- Human Data Publisher and Recorder node -->
-  <node pkg="burst_recorder" exec="burst_recorder_node" output="screen" respawn="true" respawn_delay="2">
-    <param name="image_topic" value="/image_raw"/>
-    <param name="mcap_dir" value="/root/ros_ws/mcap_recordings"/>
-    <param name="burst_duration_sec" value="6"/>
-    <param name="burst_fps" value="3"/>
-    <param name="publish_fps" value="3"/>
-    <param name="enable_continuous_publish" value="true"/>
-    <param name="system_name" value="drone_system"/>
-    <param name="topics_to_record" value="['/human_data']"/>
+
+
+  <!-- ROS Domain Bridge: Domain 70 to Domain 100 -->
+  <node pkg="domain_bridge" exec="domain_bridge"
+    name="domain_bridge_70_to_100"
+    args="/root/ros_ws/src/robot_bringup/params/domain_bridge_70_to_100.yaml"
+    output="log" 
+    respawn="true" 
+    respawn_delay="3">
+    <!-- logging level -->
+    <param name="log_level" value="INFO"/>
   </node>
 
-  <!-- Vision GPS Estimator node -->
-  <node pkg="vision_gps_estimator" exec="integrated_node" output="screen" respawn="true" respawn_delay="3">
-    <param name="streaming.rtsp_url" value="rtsp://10.3.1.124:8556/ghadron"/>
-    <param name="streaming.width" value="640"/>
-    <param name="streaming.height" value="512"/>
-    <param name="streaming.fps" value="5"/>
-    <param name="detector.model_path" value="/root/ros_ws/src/vision_gps_estimator/yolo12s.pt"/>
-    <param name="detector.conf_threshold" value="0.5"/>
-    <param name="detector.iou_threshold" value="0.45"/>
-    <param name="camera.mode" value="EO"/>
-    <param name="output.publish_camera_info" value="true"/>
-  </node>
 </launch>

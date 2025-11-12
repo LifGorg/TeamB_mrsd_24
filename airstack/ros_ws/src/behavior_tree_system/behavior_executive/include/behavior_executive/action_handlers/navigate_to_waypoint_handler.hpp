@@ -1,6 +1,6 @@
 #pragma once
 
-#include "action_handlers/action_handler_interface.hpp"
+#include "action_handler_interface.hpp"
 #include <memory>
 
 // Forward declarations

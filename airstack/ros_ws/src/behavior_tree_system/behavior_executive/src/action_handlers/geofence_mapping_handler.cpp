@@ -1,7 +1,7 @@
-#include "action_handlers/geofence_mapping_handler.hpp"
-#include "mission_planning/geometry_utils.hpp"
-#include "mission_planning/waypoint_generator.hpp"
-#include "mavros_adapter_interface.hpp"
+#include "behavior_executive/action_handlers/geofence_mapping_handler.hpp"
+#include "behavior_executive/mission_planning/geometry_utils.hpp"
+#include "behavior_executive/mission_planning/waypoint_generator.hpp"
+#include "behavior_executive/mavros_adapter_interface.hpp"
 
 #include <behavior_tree/behavior_tree.hpp>
 #include <rclcpp/rclcpp.hpp>

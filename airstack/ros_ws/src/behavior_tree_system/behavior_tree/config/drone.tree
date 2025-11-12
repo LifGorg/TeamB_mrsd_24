@@ -25,6 +25,10 @@
 		?
 			[Hold]
 	->
+		(Navigate to Waypoint Commanded)
+		?
+			[Navigate to Waypoint]
+	->
 		(Survey Commanded)
 		->
 			[Survey]		

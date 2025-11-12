@@ -1,5 +1,5 @@
-#include "action_handlers/survey_handler.hpp"
-#include "mavros_adapter_interface.hpp"
+#include "behavior_executive/action_handlers/survey_handler.hpp"
+#include "behavior_executive/mavros_adapter_interface.hpp"
 
 #include <behavior_tree/behavior_tree.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -29,7 +29,7 @@ void SurveyHandler::reset_precise_flag() {
 }
 
 bool SurveyHandler::check_safety(const Context& ctx) {
-    // 检查 GPS 是否有效
+    // check if GPS is valid
     if (ctx.current_latitude == 0.0 && ctx.current_longitude == 0.0) {
         RCLCPP_ERROR(logger_, "[Survey] Invalid current GPS position");
         return false;
@@ -107,7 +107,7 @@ void SurveyHandler::on_activated(bt::Action* action, const Context& ctx) {
     RCLCPP_INFO(logger_, "[Survey] Center point for the hexagon: lat=%f, lon=%f",
                 center_lat, center_lon);
 
-    // 生成六边形航点和偏航角
+    // hexagon waypoints and yaws
     std::vector<double> hexagon_yaws;
     auto hexagon_waypoints = generate_hexagon_waypoints(
         center_lat, 
@@ -126,13 +126,13 @@ void SurveyHandler::on_activated(bt::Action* action, const Context& ctx) {
     RCLCPP_INFO(logger_, "[Survey] Generated %zu hexagon waypoints (including loop closure)",
                 hexagon_waypoints.size());
 
-    // 发送云台锁定命令
-    mavros_adapter_->publish_gimbal_command("LOCK_ON", 3);
+    // send gimbal lock on command
+    // mavros_adapter_->publish_gimbal_command("LOCK_ON", 3);
 
-    // 首先清除之前的任务
+    // clear previous mission
     mavros_adapter_->clear_waypoints(
         [this, action, hexagon_waypoints, hexagon_yaws, ctx](bool clear_success) {
-            // 推送生成的航点
+            // push generated waypoints
             mavros_adapter_->push_waypoints(
                 hexagon_waypoints,
                 SURVEY_ALTITUDE,
@@ -155,7 +155,7 @@ void SurveyHandler::on_activated(bt::Action* action, const Context& ctx) {
         "Survey"
     );
 
-    // 重置精确检测标志（在使用后）
+    // reset precise detection flag (after use)
     reset_precise_flag();
 }
 
