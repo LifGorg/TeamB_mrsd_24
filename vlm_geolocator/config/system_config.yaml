@@ -1,0 +1,26 @@
+# system configuration
+system:
+  # sensor data timeout setting (seconds)
+  sensor_timeout: 0.5
+  sensor_stale_warning: 3.0
+  warning_interval: 10.0
+  startup_grace_period: 5.0
+  
+  # log directory
+  log_dir: "/home/triage/vlm_geolocator/inference_logs"
+  
+  # model configuration
+  model:
+    path: "/home/triage/georgia_dtc_ops_team_chiron_mrsd/Isaac-0.1"
+    device: "cuda"  # cuda, cpu, 或 null 
+    dtype: "bfloat16"  # bfloat16 或 float32
+    
+  # GPS 计算配置
+  gps:
+    earth_radius_lat: 111042.60  # meters/degree
+    # earth_radius_lon # will be calculated dynamically based on latitude
+    
+  # thread pool configuration
+  thread_pool:
+    max_workers: 2
+

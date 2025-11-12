@@ -1,0 +1,35 @@
+# camera configuration
+camera:
+  name: "RealSense D435"
+  resolution:
+    width: 1280
+    height: 720
+  
+  # camera intrinsics matrix
+  intrinsics:
+    fx: 920.407043457031
+    fy: 920.293395996094
+    cx: 638.451110839844
+    cy: 373.086090087891
+
+  ## EO camera intrinsics
+  # intrinsics:
+  #   fx: 932.82977
+  #   fy: 926.87051
+  #   cx: 612.40039
+  #   cy: 356.25877
+
+  #   fx: 1115.9726
+  #   fy: 1115.9726
+  #   cx: 319.5
+  #   cy: 255.5
+
+# GStreamer configuration
+gstreamer:
+  udp_port: 5600
+  buffer_size: 2097152
+  latency: 200
+  encoding: "H264"
+  max_buffers: 1
+  drop: true
+
