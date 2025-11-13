@@ -37,7 +37,9 @@ class SensorManager:
         self.stale_warning = stale_warning
         self.use_gimbal = use_gimbal
         if default_gimbal_attitude is None:
-            self.default_gimbal_attitude = (0.0, -np.pi / 2.0, 0.0)
+            # Default: no roll/yaw, 60 degrees down pitch
+            # This default is also configurable in camera_config.yaml
+            self.default_gimbal_attitude = (0.0, -np.pi / 3.0, 0.0)
         else:
             self.default_gimbal_attitude = default_gimbal_attitude
         

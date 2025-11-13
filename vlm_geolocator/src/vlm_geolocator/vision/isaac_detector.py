@@ -106,25 +106,12 @@ class IsaacDetectorWrapper(DetectorInterface):
         # Run inference
         with torch.no_grad():
             tensor_stream = inputs["tensor_stream"].to(self.device)
-            attention_mask = inputs.get("attention_mask")
-            if attention_mask is not None:
-                attention_mask = attention_mask.to(self.device)
-
-            pad_token_id = getattr(self.processor.tokenizer, "pad_token_id", None)
-            if pad_token_id is None:
-                pad_token_id = self.processor.tokenizer.eos_token_id
-
-            generate_kwargs = {
-                "tensor_stream": tensor_stream,
-                "max_new_tokens": 256,
-                "do_sample": False,
-                "eos_token_id": self.processor.tokenizer.eos_token_id,
-                "pad_token_id": pad_token_id
-            }
-            if attention_mask is not None:
-                generate_kwargs["attention_mask"] = attention_mask
-
-            generated_ids = self.model.generate(**generate_kwargs)
+            generated_ids = self.model.generate(
+                tensor_stream=tensor_stream,
+                max_new_tokens=256,
+                do_sample=False,
+                eos_token_id=self.processor.tokenizer.eos_token_id
+            )
         
         # Decode output
         response_text = self.processor.tokenizer.decode(

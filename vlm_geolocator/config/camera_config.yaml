@@ -24,6 +24,13 @@ camera:
   #   cx: 319.5
   #   cy: 255.5
 
+  # Gimbal/Camera attitude (in degrees)
+  # Used when gimbal sensor is not available
+  gimbal_attitude:
+    roll: 0.0      # degrees (no roll)
+    pitch: -60.0   # degrees (pointing downward 60 degrees)
+    yaw: 0.0       # degrees (no yaw)
+
 # GStreamer configuration
 gstreamer:
   udp_port: 5600

@@ -28,7 +28,7 @@ except Exception:
 from vlm_geolocator.core import ConfigManager
 from vlm_geolocator.sensors import SensorManager
 from vlm_geolocator.gps import GPSCalculator
-from vlm_geolocator.vision import VideoFrameReceiver, IsaacDetectorWrapper
+from vlm_geolocator.vision import VideoFrameReceiver, IsaacDetectorWrapper, VideoRecorder
 from vlm_geolocator.ros_interface import ROSPublisherManager, ROSSubscriberManager
 
 
@@ -51,7 +51,7 @@ class VisionInferenceNode(Node):
             timeout=self.config.system.sensor_timeout,
             stale_warning=self.config.system.sensor_stale_warning,
             use_gimbal=False,
-            default_gimbal_attitude=(0.0, -np.pi / 2.0, 0.0)
+            default_gimbal_attitude=self.config.camera.gimbal_attitude_radians
         )
         
         # Initialize GPS calculator
@@ -60,6 +60,18 @@ class VisionInferenceNode(Node):
             intrinsic_matrix=self.config.camera.intrinsic_matrix,
             earth_radius_lat=self.config.system.gps_earth_radius_lat
         )
+        
+        # Initialize video recorder (before video receiver to avoid AttributeError)
+        self.get_logger().info('Initializing video recorder...')
+        video_dir = Path(self.config.system.log_dir) / 'recordings'
+        try:
+            self.video_recorder = VideoRecorder(
+                output_dir=str(video_dir),
+                fps=30
+            )
+        except RuntimeError as e:
+            self.get_logger().warn(f'Video recorder initialization failed: {e}')
+            self.video_recorder = None
         
         # Initialize video receiver
         self.get_logger().info('Initializing video receiver...')
@@ -117,6 +129,12 @@ class VisionInferenceNode(Node):
         self.subscriber_manager.subscribe_trigger(
             '/trigger_capture',
             self._trigger_callback
+        )
+        
+        # Subscribe to record trigger
+        self.subscriber_manager.subscribe_trigger(
+            '/trigger_record',
+            self._trigger_record_callback
         )
         
         # Create capture service
@@ -247,6 +265,10 @@ class VisionInferenceNode(Node):
         frame_count = self.video_receiver.get_frame_count()
         if frame_count % 1000 == 0:
             self.get_logger().info(f'✓ Received {frame_count} frames')
+        
+        # 将帧传递给视频录制器
+        if self.video_recorder is not None:
+            self.video_recorder.add_frame(frame)
     
     def _gps_callback(self, msg):
         """GPS callback"""
@@ -270,6 +292,24 @@ class VisionInferenceNode(Node):
         if msg.data:
             self.get_logger().info('📸 Capture triggered from Foxglove')
             self._capture_and_process()
+    
+    def _trigger_record_callback(self, msg):
+        """Record trigger topic callback"""
+        if msg.data:
+            if self.video_recorder is None:
+                self.get_logger().warn('⚠️  Video recorder not available (OpenCV missing)')
+                return
+            
+            if self.video_recorder.is_currently_recording():
+                self.get_logger().warn('⚠️  Already recording video, ignoring trigger')
+                return
+            
+            self.get_logger().info('🎥 Video recording triggered')
+            output_path = self.video_recorder.start_recording(duration=5.0)
+            if output_path:
+                self.get_logger().info(f'📹 Recording 5-second video to: {output_path}')
+            else:
+                self.get_logger().warn('⚠️  Failed to start recording')
     
     def _handle_capture_service(self, request, response):
         """Capture service callback"""
@@ -482,6 +522,8 @@ class VisionInferenceNode(Node):
     def destroy_node(self):
         """Clean up resources"""
         self.get_logger().info('🛑 Shutting down node...')
+        if self.video_recorder is not None:
+            self.video_recorder.stop()
         self.video_receiver.stop()
         self.thread_pool.shutdown(wait=True)
         super().destroy_node()

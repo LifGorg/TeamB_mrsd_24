@@ -30,6 +30,18 @@ class ROSPublisherManager:
         
         # 创建QoS配置
         self.mavros_qos = self._create_qos_profile(qos_config['mavros'])
+        
+        # 创建casualty_geolocated专用QoS (如果配置存在)
+        if 'casualty_geolocated' in qos_config:
+            self.casualty_qos = self._create_qos_profile(qos_config['casualty_geolocated'])
+        else:
+            # 默认使用RELIABLE + TRANSIENT_LOCAL以兼容domain_bridge
+            self.casualty_qos = self._create_qos_profile({
+                'reliability': 'reliable',
+                'durability': 'transient_local',
+                'history': 'keep_last',
+                'depth': 10
+            })
     
     def _create_qos_profile(self, config: Dict[str, Any]) -> QoSProfile:
         """创建QoS配置"""
@@ -78,7 +90,7 @@ class ROSPublisherManager:
         self.publishers['casualty_geolocated'] = self.node.create_publisher(
             NavSatFix,
             topic_name,
-            self.mavros_qos
+            self.casualty_qos  # 使用专用的QoS配置
         )
     
     def publish_drone_gps(self, gps_data: NavSatFix):

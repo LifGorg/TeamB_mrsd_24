@@ -24,4 +24,11 @@ ros2:
       durability: "volatile"
       history: "keep_last"
       depth: 10
+    
+    # QoS for casualty_geolocated topic (compatible with domain_bridge)
+    casualty_geolocated:
+      reliability: "reliable"
+      durability: "transient_local"
+      history: "keep_last"
+      depth: 10
 

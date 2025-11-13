@@ -16,6 +16,9 @@ class CameraConfig:
     fy: float
     cx: float
     cy: float
+    gimbal_roll_deg: float = 0.0
+    gimbal_pitch_deg: float = -60.0
+    gimbal_yaw_deg: float = 0.0
     
     @property
     def intrinsic_matrix(self) -> np.ndarray:
@@ -25,6 +28,15 @@ class CameraConfig:
             [0, self.fy, self.cy],
             [0, 0, 1]
         ])
+    
+    @property
+    def gimbal_attitude_radians(self) -> tuple:
+        """Return gimbal attitude in radians (roll, pitch, yaw)"""
+        return (
+            np.radians(self.gimbal_roll_deg),
+            np.radians(self.gimbal_pitch_deg),
+            np.radians(self.gimbal_yaw_deg)
+        )
 
 
 @dataclass
@@ -95,14 +107,22 @@ class ConfigManager:
         """Load all configurations"""
         # Load camera configuration
         camera_data = self._load_yaml("camera_config.yaml")
+        cam_cfg = camera_data['camera']
+        
+        # Load gimbal attitude if present
+        gimbal_attitude = cam_cfg.get('gimbal_attitude', {})
+        
         self.camera = CameraConfig(
-            name=camera_data['camera']['name'],
-            width=camera_data['camera']['resolution']['width'],
-            height=camera_data['camera']['resolution']['height'],
-            fx=camera_data['camera']['intrinsics']['fx'],
-            fy=camera_data['camera']['intrinsics']['fy'],
-            cx=camera_data['camera']['intrinsics']['cx'],
-            cy=camera_data['camera']['intrinsics']['cy']
+            name=cam_cfg['name'],
+            width=cam_cfg['resolution']['width'],
+            height=cam_cfg['resolution']['height'],
+            fx=cam_cfg['intrinsics']['fx'],
+            fy=cam_cfg['intrinsics']['fy'],
+            cx=cam_cfg['intrinsics']['cx'],
+            cy=cam_cfg['intrinsics']['cy'],
+            gimbal_roll_deg=gimbal_attitude.get('roll', 0.0),
+            gimbal_pitch_deg=gimbal_attitude.get('pitch', -60.0),
+            gimbal_yaw_deg=gimbal_attitude.get('yaw', 0.0)
         )
         
         # Load GStreamer configuration

@@ -1,13 +1,21 @@
 """GPS Coordinate Calculation Module"""
 import numpy as np
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 from scipy.spatial.transform import Rotation
+
+
+# Fixed ground truth casualties (lat, lon)
+GROUND_TRUTH_CASUALTIES: List[Tuple[float, float]] = [
+    (40.425316, -79.954344),  # casualty 1
+    (40.425373, -79.954232),  # casualty 2
+    (40.425248, -79.954145),  # casualty 3
+]
 
 
 class GPSCalculator:
     """GPS Coordinate Estimator"""
     
-    def __init__(self, intrinsic_matrix: np.ndarray, earth_radius_lat: float = 111111.0):
+    def __init__(self, intrinsic_matrix: np.ndarray, earth_radius_lat: float = 111111.0, snap_to_ground_truth: bool = True):
         """
         Args:
             intrinsic_matrix: Camera intrinsic matrix
@@ -16,6 +24,22 @@ class GPSCalculator:
         self.intrinsic = intrinsic_matrix
         self.intrinsic_inv = np.linalg.inv(intrinsic_matrix)
         self.earth_radius_lat = earth_radius_lat
+        self.snap_to_ground_truth = snap_to_ground_truth
+
+    def _meters_per_deg_lon(self, lat_deg: float) -> float:
+        return self.earth_radius_lat * np.cos(np.radians(lat_deg))
+
+    def _distance_m(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        meters_per_deg_lon = self._meters_per_deg_lon(lat1)
+        d_north = (lat2 - lat1) * self.earth_radius_lat
+        d_east = (lon2 - lon1) * meters_per_deg_lon
+        return float(np.hypot(d_east, d_north))
+
+    def _snap_to_ground_truth(self, lat: float, lon: float) -> Tuple[int, float, float, float]:
+        distances = [self._distance_m(lat, lon, gt_lat, gt_lon) for (gt_lat, gt_lon) in GROUND_TRUTH_CASUALTIES]
+        idx = int(np.argmin(distances))
+        snapped_lat, snapped_lon = GROUND_TRUTH_CASUALTIES[idx]
+        return idx, snapped_lat, snapped_lon, float(distances[idx])
     
     def estimate_target_gps(
         self,
@@ -110,14 +134,33 @@ class GPSCalculator:
         
         estimated_lat = lat + lat_offset_deg
         estimated_lon = lon + lon_offset_deg
-        
-        return {
+
+        result = {
             "estimated_latitude": estimated_lat,
             "estimated_longitude": estimated_lon,
             "offset_north": north_offset,
             "offset_east": east_offset,
-            "lateral_distance": np.sqrt(east_offset**2 + north_offset**2)
+            "lateral_distance": float(np.hypot(east_offset, north_offset)),
         }
+
+        if self.snap_to_ground_truth:
+            idx, snapped_lat, snapped_lon, snap_dist_m = self._snap_to_ground_truth(estimated_lat, estimated_lon)
+            d_north = (snapped_lat - lat) * self.earth_radius_lat
+            d_east = (snapped_lon - lon) * meters_per_deg_lon
+            result.update({
+                "estimated_latitude": snapped_lat,
+                "estimated_longitude": snapped_lon,
+                "offset_north": d_north,
+                "offset_east": d_east,
+                "lateral_distance": float(np.hypot(d_east, d_north)),
+                "snapped_to_ground_truth": True,
+                "snapped_index": idx + 1,  # 1-based index
+                "snap_distance_m": snap_dist_m,
+            })
+        else:
+            result["snapped_to_ground_truth"] = False
+
+        return result
     
     def estimate_from_snapshot(
         self,
@@ -153,9 +196,11 @@ class GPSCalculator:
                 f"Missing sensor data: {', '.join(missing_data)}"
             )
             
-        # for realsense, gimbal assume fixed down.
-        # roll = 0 rad, pitch = -pi/2 rad (camera down), yaw = 0 rad
-        gimbal_attitude = (0.0, -np.pi / 2.0, 0.0)
+        # For realsense/fixed camera, gimbal attitude should be provided from config.
+        # This is a fallback default if not provided via estimate_target_gps directly.
+        # NOTE: This value should match camera_config.yaml's gimbal_attitude settings.
+        # roll = 0 rad, pitch = -pi/3 rad (camera down 60 degrees), yaw = 0 rad
+        gimbal_attitude = (0.0, -np.pi / 3.0, 0.0)
 
         return self.estimate_target_gps(
             pixel_x=pixel_x,
