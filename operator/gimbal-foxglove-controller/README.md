@@ -1,14 +1,31 @@
 # gimbal-foxglove-controller
 
-This Foxglove extension adds a "Gimbal Virtual Controller" panel with on-screen buttons acting like a joystick:
+This Foxglove extension provides two gimbal control panels:
+
+## Panels
+
+### 1. Gimbal Virtual Controller (Legacy)
+**Panel name:** `gimbal-virtual-controller`
+
+Full teleoperation controller with on-screen buttons acting like a joystick:
 
 - Pan: Up / Down / Left / Right
 - Zoom: In / Out
-- Trigger button
-- Mode switch button
+- Trigger button (capture)
+- Mode switch button (record)
 - Recenter camera button
 
 Hold the directional and zoom buttons to continuously send commands; the others send one-shot actions.
+
+### 2. Gimbal Capture Controller (New/Recommended)
+**Panel name:** `gimbal-capture-controller`
+
+Simplified controller with only essential capture/record functions:
+
+- 📷 Capture button → publishes to `/trigger_capture` (std_msgs/Bool)
+- 🔴 Record Toggle button → publishes to `/trigger_record` (std_msgs/Bool)
+
+All pan/tilt/zoom teleoperation controls have been removed. Use a physical joystick controller for manual gimbal control.
 
 ## Build and install locally
 
@@ -19,9 +36,11 @@ npm run build
 npm run local-install
 ```
 
-Then in Foxglove Studio, add the panel named `gimbal-virtual-controller` from the Add panel menu.
+Then in Foxglove Studio, add either panel from the Add panel menu:
+- `gimbal-virtual-controller` (legacy, full controls)
+- `gimbal-capture-controller` (new, capture/record only)
 
-You can change the publish topic and repeat rate in the panel settings.
+You can change the publish topic and other settings in the panel settings.
 
 [Foxglove](https://foxglove.dev) allows developers to create [extensions](https://docs.foxglove.dev/docs/visualization/extensions/introduction), or custom code that is loaded and executed inside the Foxglove application. This can be used to add custom panels. Extensions are authored in TypeScript using the `@foxglove/extension` SDK.
 

@@ -15,8 +15,8 @@ const BEHAVIOR_COMMANDS = [
   { name: "Auto Takeoff Commanded", label: "Auto Takeoff", description: "Auto takeoff the drone" },
   { name: "AutoLand Commanded", label: "Auto Land", description: "Auto land the drone" },
   { name: "EStop Commanded", label: "EStop", description: "E-stop the drone" },
-  // { name: "Survey Commanded", label: "Survey", description: "Execute survey task" },
-  // { name: "Geofence Mapping Commanded", label: "Geofence Mapping", description: "Execute geofence mapping" },
+  { name: "Survey Commanded", label: "Survey", description: "Execute survey task" },
+  { name: "Geofence Mapping Commanded", label: "Geofence Mapping", description: "Execute geofence mapping" },
   { name: "Navigate to Waypoint Commanded", label: "Navigate to Waypoint", description: "Go to waypoint" },
 ] as const;
 

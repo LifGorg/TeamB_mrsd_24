@@ -48,16 +48,16 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const mapRef = useRef<LeafletMap | null>(null);
   const geofencePolygonRef = useRef<Polygon | null>(null);
   const geofenceMarkersRef = useRef<Map<number, LeafletMarker>>(new Map());
+  const missionWaypointMarkersRef = useRef<Map<number, LeafletMarker>>(new Map());  // Mission waypoints (persistent)
   const humanMarkersRef = useRef<Map<string, LeafletMarker>>(new Map());
   const selectedWaypointMarkerRef = useRef<LeafletMarker | null>(null);
   const [status, setStatus] = useState<string>("Initializing...");
   const [selectedWaypoint, setSelectedWaypoint] = useState<{lat: number, lon: number} | null>(null);
+  const [waypointAltitude, setWaypointAltitude] = useState<number>(8.0); // User-configurable altitude
 
   // Topic names
-  const GEOFENCE_TOPIC = "/robot_1/mavros/geofence/fences";
-  const TARGET_GPS_TOPIC = "/target_gps";
-  const TARGET_GPS_LIST_TOPIC = "/target_gps_list";
-  const PRECISE_TARGET_GPS_TOPIC = "/precise_target_gps";
+  const GEOFENCE_TOPIC = "/dtc_mrsd_/mavros/geofence/fences";
+  const MISSION_WAYPOINTS_TOPIC = "/dtc_mrsd_/mavros/mission/waypoints";  // Mission waypoints
   const CASUALTY_GEOLOCATED_TOPIC = "/casualty_geolocated";  // Casualty position
   const SELECTED_WAYPOINT_TOPIC = "/selected_waypoint";  // New topic for selected waypoint
   const DRONE_GPS_TOPIC = "/dtc_mrsd_/mavros/global_position/global";  // Drone position
@@ -76,9 +76,7 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const subscriptions = useMemo(
     () => [
       { topic: GEOFENCE_TOPIC },
-      { topic: TARGET_GPS_TOPIC },
-      { topic: TARGET_GPS_LIST_TOPIC },
-      { topic: PRECISE_TARGET_GPS_TOPIC },
+      { topic: MISSION_WAYPOINTS_TOPIC },
       { topic: CASUALTY_GEOLOCATED_TOPIC },
       { topic: DRONE_GPS_TOPIC },
       { topic: DRONE_HEADING_TOPIC },
@@ -107,10 +105,13 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   }, [context]);
 
   // Publish selected waypoint
-  const publishSelectedWaypoint = useCallback((lat: number, lon: number, alt: number = 5.0) => {
+  const publishSelectedWaypoint = useCallback((lat: number, lon: number, alt?: number) => {
     if (!context.publish) return;
     
     ensureAdvertised();
+    
+    // Use provided altitude or the user-configured altitude
+    const altitude = alt ?? waypointAltitude;
 
     const msg = {
       header: {
@@ -123,19 +124,19 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
       },
       latitude: lat,
       longitude: lon,
-      altitude: alt,
+      altitude: altitude,
       position_covariance: [0, 0, 0, 0, 0, 0, 0, 0, 0],
       position_covariance_type: 0,
     };
 
     try {
       context.publish(SELECTED_WAYPOINT_TOPIC, msg);
-      console.log("[GeofenceMap] ✓ Published:", lat, lon, alt);
-      setStatus(`Waypoint: ${lat.toFixed(6)}, ${lon.toFixed(6)}`);
+      console.log("[GeofenceMap] ✓ Published:", lat, lon, altitude);
+      setStatus(`Waypoint: ${lat.toFixed(6)}, ${lon.toFixed(6)}, Alt: ${altitude}m`);
     } catch (error) {
       console.error("[GeofenceMap] ✗ Publish failed:", error);
     }
-  }, [context, SELECTED_WAYPOINT_TOPIC]);
+  }, [context, SELECTED_WAYPOINT_TOPIC, waypointAltitude]);
 
   // Zoom to drone position
   const zoomToDrone = () => {
@@ -253,8 +254,16 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
     }
 
     // Throttle updates to prevent high-frequency DOM manipulation
+    // But allow high-priority topics (mission waypoints, geofence, casualty) through immediately
     const now = Date.now();
-    if (now - lastUpdateTimeRef.current < UPDATE_THROTTLE_MS) {
+    const hasHighPriorityTopic = messages.some(
+      (ev) =>
+        ev.topic === MISSION_WAYPOINTS_TOPIC ||
+        ev.topic === GEOFENCE_TOPIC ||
+        ev.topic === CASUALTY_GEOLOCATED_TOPIC
+    );
+    
+    if (!hasHighPriorityTopic && now - lastUpdateTimeRef.current < UPDATE_THROTTLE_MS) {
       renderDone?.();
       return;
     }
@@ -346,6 +355,99 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
 
               setStatus(`Geofence: ${points.length} points (need 3+ for polygon)`);
             }
+          }
+        }
+
+        // Process mission waypoints (persistent - never removed)
+        if (topic === MISSION_WAYPOINTS_TOPIC) {
+          console.log("[GeofenceMap] 📥 Received mission waypoints message");
+          const waypointList = message as any;
+          console.log("[GeofenceMap] 🔍 Full message:", JSON.stringify(waypointList, null, 2));
+          console.log("[GeofenceMap] 🔍 Message structure:", {
+            hasWaypoints: !!waypointList.waypoints,
+            isArray: Array.isArray(waypointList.waypoints),
+            count: waypointList.waypoints?.length,
+            currentSeq: waypointList.current_seq
+          });
+
+          if (waypointList.waypoints && Array.isArray(waypointList.waypoints)) {
+            console.log("[GeofenceMap] 🔍 Processing", waypointList.waypoints.length, "waypoints");
+            
+            // Extract valid waypoints with GPS coordinates
+            const waypoints = waypointList.waypoints.filter((wp: any) => {
+              const valid = wp.x_lat !== undefined && 
+                     wp.y_long !== undefined && 
+                     wp.x_lat !== 0 && 
+                     wp.y_long !== 0;
+              if (!valid) {
+                console.log("[GeofenceMap] ⚠️ Filtered out invalid waypoint:", wp);
+              }
+              return valid;
+            });
+
+            console.log("[GeofenceMap] ✅ Valid waypoints:", waypoints.length);
+            console.log("[GeofenceMap] 🗺️ Map exists:", !!map);
+            console.log("[GeofenceMap] 📍 Current markers count:", missionWaypointMarkersRef.current.size);
+
+            // Add or update waypoint markers (persistent)
+            waypoints.forEach((wp: any, index: number) => {
+              const lat = wp.x_lat;
+              const lon = wp.y_long;
+              const frame = wp.frame || 0;
+              const command = wp.command || 0;
+              
+              console.log(`[GeofenceMap] 📍 Processing waypoint ${index + 1}:`, {lat, lon, frame, command});
+              
+              // Create unique ID for this waypoint
+              const waypointId = index;
+
+              // Check if marker already exists
+              if (missionWaypointMarkersRef.current.has(waypointId)) {
+                console.log(`[GeofenceMap] 🔄 Updating existing marker ${index + 1}`);
+                const marker = missionWaypointMarkersRef.current.get(waypointId)!;
+                const currentLatLng = marker.getLatLng();
+                // Update only if coordinates changed
+                if (Math.abs(currentLatLng.lat - lat) > 1e-6 || 
+                    Math.abs(currentLatLng.lng - lon) > 1e-6) {
+                  marker.setLatLng([lat, lon]);
+                  marker.setPopupContent(
+                    `<b>Mission Waypoint ${index + 1}</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>Frame: ${frame}<br>Command: ${command}`
+                  );
+                  console.log(`[GeofenceMap] ✅ Updated marker ${index + 1} position`);
+                }
+              } else {
+                console.log(`[GeofenceMap] ➕ Creating NEW marker ${index + 1} at [${lat}, ${lon}]`);
+                // Create new persistent waypoint marker (purple diamond)
+                const icon = L.divIcon({
+                  className: "mission-waypoint-marker",
+                  html: `<div style="background-color: #9c27b0; width: 16px; height: 16px; transform: rotate(45deg); border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,0.5);"><span style="transform: rotate(-45deg); color: white; font-weight: bold; font-size: 9px;">${index + 1}</span></div>`,
+                  iconSize: [16, 16],
+                  iconAnchor: [8, 8],
+                });
+
+                try {
+                  console.log(`[GeofenceMap] 🔨 Creating marker for waypoint ${index + 1}...`);
+                  const marker = L.marker([lat, lon], { icon });
+                  console.log(`[GeofenceMap] 🔨 Adding marker to map...`);
+                  marker.addTo(map);
+                  console.log(`[GeofenceMap] 🔨 Binding popup...`);
+                  marker.bindPopup(
+                    `<b>Mission Waypoint ${index + 1}</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>Frame: ${frame}<br>Command: ${command}`
+                  );
+
+                  console.log(`[GeofenceMap] 🔨 Storing marker reference...`);
+                  missionWaypointMarkersRef.current.set(waypointId, marker);
+                  console.log(`[GeofenceMap] ✅ Successfully added marker ${index + 1}. Total markers:`, missionWaypointMarkersRef.current.size);
+                } catch (error) {
+                  console.error(`[GeofenceMap] ❌ Failed to create marker ${index + 1}:`, error);
+                }
+              }
+            });
+
+            console.log(`[GeofenceMap] ✅ Mission waypoints processing complete. Total markers on map:`, missionWaypointMarkersRef.current.size);
+            setStatus(`Mission: ${waypoints.length} waypoints`);
+          } else {
+            console.log("[GeofenceMap] ⚠️ Invalid waypoints data structure");
           }
         }
 
@@ -458,15 +560,8 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
           }
         }
 
-        // Process target GPS topics (sensor_msgs/NavSatFix)
-        const navSatFixTopics = [
-          TARGET_GPS_TOPIC,
-          TARGET_GPS_LIST_TOPIC,
-          PRECISE_TARGET_GPS_TOPIC,
-          CASUALTY_GEOLOCATED_TOPIC,
-        ];
-
-        if (navSatFixTopics.includes(topic)) {
+        // Process casualty geolocated topic (sensor_msgs/NavSatFix)
+        if (topic === CASUALTY_GEOLOCATED_TOPIC) {
           const navSatFix = message as any;
           if (
             navSatFix.latitude !== undefined &&
@@ -481,65 +576,27 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
               timestamp: Date.now(),
             };
 
-            // Use frame_id to distinguish clusters for /target_gps_list
-            // Other topics use topic name only (single marker)
-            const frameId = navSatFix.header?.frame_id || "";
-            const markerId = topic === TARGET_GPS_LIST_TOPIC 
-              ? `${topic}-${frameId}`  // Multiple markers for different clusters
-              : topic;                  // Single marker for other topics
+            // Use unique timestamp-based ID to keep all history
+            const markerId = `${topic}-${Date.now()}-${Math.random()}`;
 
-            if (humanMarkersRef.current.has(markerId)) {
-              const marker = humanMarkersRef.current.get(markerId)!;
-              const currentLatLng = marker.getLatLng();
-              // Update only if coordinates changed
-              if (Math.abs(currentLatLng.lat - humanGPS.lat) > 1e-6 || 
-                  Math.abs(currentLatLng.lng - humanGPS.lon) > 1e-6) {
-                marker.setLatLng([humanGPS.lat, humanGPS.lon]);
-              }
-            } else {
-              // Set marker color and icon based on topic
-              let color = "#3388ff";
-              let iconText = "H";
-              if (topic === PRECISE_TARGET_GPS_TOPIC) {
-                color = "#00ff00";
-                iconText = "P";
-              } else if (topic === TARGET_GPS_LIST_TOPIC) {
-                color = "#ffff00";
-                iconText = "L";
-              } else if (topic === CASUALTY_GEOLOCATED_TOPIC) {
-                color = "#ff0000";
-                iconText = "C";
-              }
+            // Always create new marker (never update existing ones)
+            const icon = L.divIcon({
+              className: "custom-marker",
+              html: `<div style="background-color: #ff0000; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">C</div>`,
+              iconSize: [20, 20],
+              iconAnchor: [10, 10],
+            });
 
-              // Create custom icon
-              const icon = L.divIcon({
-                className: "custom-marker",
-                html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">${iconText}</div>`,
-                iconSize: [20, 20],
-                iconAnchor: [10, 10],
-              });
+            const marker = L.marker([humanGPS.lat, humanGPS.lon], { icon })
+              .addTo(map)
+              .bindPopup(`<b>Casualty</b><br>Lat: ${humanGPS.lat.toFixed(6)}<br>Lon: ${humanGPS.lon.toFixed(6)}`);
 
-              const popupText = frameId 
-                ? `<b>${topic}</b><br>Cluster: ${frameId}<br>Lat: ${humanGPS.lat.toFixed(6)}<br>Lon: ${humanGPS.lon.toFixed(6)}`
-                : `<b>${topic}</b><br>Lat: ${humanGPS.lat.toFixed(6)}<br>Lon: ${humanGPS.lon.toFixed(6)}`;
-
-              const marker = L.marker([humanGPS.lat, humanGPS.lon], { icon })
-                .addTo(map)
-                .bindPopup(popupText);
-
-              humanMarkersRef.current.set(markerId, marker);
-            }
+            humanMarkersRef.current.set(markerId, marker);
 
             // Update status
-            if (topic === TARGET_GPS_LIST_TOPIC && frameId) {
-              const clusterCount = Array.from(humanMarkersRef.current.keys())
-                .filter(id => id.startsWith(TARGET_GPS_LIST_TOPIC)).length;
-              setStatus(`Target GPS List: ${clusterCount} clusters active`);
-            } else if (topic === CASUALTY_GEOLOCATED_TOPIC) {
-              setStatus(`Casualty Geolocated: ${humanGPS.lat.toFixed(6)}, ${humanGPS.lon.toFixed(6)}`);
-            } else {
-              setStatus(`Human GPS: ${humanGPS.lat.toFixed(6)}, ${humanGPS.lon.toFixed(6)}`);
-            }
+            const casualtyCount = Array.from(humanMarkersRef.current.keys())
+              .filter(id => id.startsWith(CASUALTY_GEOLOCATED_TOPIC)).length;
+            setStatus(`Casualties: ${casualtyCount} total detected`);
           }
         }
       } catch (error) {
@@ -603,6 +660,36 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
             </span>
           </div>
         )}
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          gap: "8px", 
+          marginTop: "6px",
+          fontSize: "11px" 
+        }}>
+          <label style={{ fontWeight: "600", color: "#333" }}>
+            Waypoint Altitude (m):
+          </label>
+          <input
+            type="number"
+            value={waypointAltitude}
+            onChange={(e) => setWaypointAltitude(parseFloat(e.target.value) || 0)}
+            min="0"
+            max="200"
+            step="0.5"
+            style={{
+              width: "70px",
+              padding: "3px 6px",
+              fontSize: "11px",
+              borderRadius: "3px",
+              border: "1px solid #ccc",
+              textAlign: "right"
+            }}
+          />
+          <span style={{ fontSize: "10px", color: "#666" }}>
+            (Set altitude for selected waypoints)
+          </span>
+        </div>
         <div style={{ fontSize: "10px", color: "#999", marginTop: "4px" }}>
           Click map to select waypoint • Topics: {GEOFENCE_TOPIC}, {SELECTED_WAYPOINT_TOPIC}
         </div>
