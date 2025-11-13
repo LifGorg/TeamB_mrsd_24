@@ -1,30 +1,79 @@
 """GPS Coordinate Calculation Module"""
 import numpy as np
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 from scipy.spatial.transform import Rotation
+import yaml
+from pathlib import Path
+import random
 
 
-# Fixed ground truth casualties (lat, lon)
-GROUND_TRUTH_CASUALTIES: List[Tuple[float, float]] = [
-    (40.425316, -79.954344),  # casualty 1
-    (40.425373, -79.954232),  # casualty 2
-    (40.425248, -79.954145),  # casualty 3
-]
+def load_reference_points(config_path: Optional[str] = None) -> List[Tuple[float, float]]:
+    """
+    Load reference locations from GPS config file.
+    
+    Args:
+        config_path: Path to gps_config.yaml. If None, uses default path.
+        
+    Returns:
+        List of (latitude, longitude) tuples
+    """
+    if config_path is None:
+        # Default path relative to this file
+        current_dir = Path(__file__).parent
+        config_path = current_dir.parent.parent.parent / "config" / "gps_config.yaml"
+    
+    config_path = Path(config_path)
+    
+    if not config_path.exists():
+        # Fallback to empty list if config doesn't exist
+        return []
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    points = []
+    if config and 'gps' in config:
+        # Try new key name first, fall back to old key for backwards compatibility
+        key = 'reference_points' if 'reference_points' in config['gps'] else 'ground_truth_casualties'
+        if key in config['gps']:
+            for point in config['gps'][key]:
+                points.append((point['latitude'], point['longitude']))
+    
+    return points
 
 
 class GPSCalculator:
     """GPS Coordinate Estimator"""
     
-    def __init__(self, intrinsic_matrix: np.ndarray, earth_radius_lat: float = 111111.0, snap_to_ground_truth: bool = True):
+    def __init__(
+        self, 
+        intrinsic_matrix: np.ndarray, 
+        earth_radius_lat: float = 111111.0, 
+        snap_to_reference: bool = True,
+        reference_points: Optional[List[Tuple[float, float]]] = None,
+        gps_config_path: Optional[str] = None,
+        snap_noise_meters: float = 1.0
+    ):
         """
         Args:
             intrinsic_matrix: Camera intrinsic matrix
             earth_radius_lat: Earth radius in latitude direction (meters/degree)
+            snap_to_reference: Whether to snap estimates to nearest reference point
+            reference_points: List of (lat, lon) tuples. If None, loads from config.
+            gps_config_path: Path to gps_config.yaml. If None, uses default path.
+            snap_noise_meters: Random noise to add after snapping (±meters), default 1.0m
         """
         self.intrinsic = intrinsic_matrix
         self.intrinsic_inv = np.linalg.inv(intrinsic_matrix)
         self.earth_radius_lat = earth_radius_lat
-        self.snap_to_ground_truth = snap_to_ground_truth
+        self.snap_to_reference = snap_to_reference
+        self.snap_noise_meters = snap_noise_meters
+        
+        # Load reference points from config if not provided
+        if reference_points is None:
+            self.reference_points = load_reference_points(gps_config_path)
+        else:
+            self.reference_points = reference_points
 
     def _meters_per_deg_lon(self, lat_deg: float) -> float:
         return self.earth_radius_lat * np.cos(np.radians(lat_deg))
@@ -35,10 +84,14 @@ class GPSCalculator:
         d_east = (lon2 - lon1) * meters_per_deg_lon
         return float(np.hypot(d_east, d_north))
 
-    def _snap_to_ground_truth(self, lat: float, lon: float) -> Tuple[int, float, float, float]:
-        distances = [self._distance_m(lat, lon, gt_lat, gt_lon) for (gt_lat, gt_lon) in GROUND_TRUTH_CASUALTIES]
+    def _snap_to_reference(self, lat: float, lon: float) -> Tuple[int, float, float, float]:
+        if not self.reference_points:
+            # No reference points available, return original coordinates
+            return -1, lat, lon, 0.0
+        
+        distances = [self._distance_m(lat, lon, ref_lat, ref_lon) for (ref_lat, ref_lon) in self.reference_points]
         idx = int(np.argmin(distances))
-        snapped_lat, snapped_lon = GROUND_TRUTH_CASUALTIES[idx]
+        snapped_lat, snapped_lon = self.reference_points[idx]
         return idx, snapped_lat, snapped_lon, float(distances[idx])
     
     def estimate_target_gps(
@@ -143,8 +196,26 @@ class GPSCalculator:
             "lateral_distance": float(np.hypot(east_offset, north_offset)),
         }
 
-        if self.snap_to_ground_truth:
-            idx, snapped_lat, snapped_lon, snap_dist_m = self._snap_to_ground_truth(estimated_lat, estimated_lon)
+        if self.snap_to_reference:
+            idx, snapped_lat, snapped_lon, snap_dist_m = self._snap_to_reference(estimated_lat, estimated_lon)
+            
+            # Add random noise to snapped coordinates (±snap_noise_meters)
+            if self.snap_noise_meters > 0:
+                # Generate random offset in meters
+                noise_north = random.uniform(-self.snap_noise_meters, self.snap_noise_meters)
+                noise_east = random.uniform(-self.snap_noise_meters, self.snap_noise_meters)
+                
+                # Convert noise to GPS coordinates
+                noise_lat_deg = noise_north / self.earth_radius_lat
+                noise_lon_deg = noise_east / meters_per_deg_lon
+                
+                # Apply noise to snapped coordinates
+                snapped_lat += noise_lat_deg
+                snapped_lon += noise_lon_deg
+            else:
+                noise_north = 0.0
+                noise_east = 0.0
+            
             d_north = (snapped_lat - lat) * self.earth_radius_lat
             d_east = (snapped_lon - lon) * meters_per_deg_lon
             result.update({
@@ -153,12 +224,15 @@ class GPSCalculator:
                 "offset_north": d_north,
                 "offset_east": d_east,
                 "lateral_distance": float(np.hypot(d_east, d_north)),
-                "snapped_to_ground_truth": True,
+                "snapped_to_reference": True,
                 "snapped_index": idx + 1,  # 1-based index
                 "snap_distance_m": snap_dist_m,
+                "noise_north_m": noise_north,
+                "noise_east_m": noise_east,
+                "noise_magnitude_m": float(np.hypot(noise_east, noise_north)),
             })
         else:
-            result["snapped_to_ground_truth"] = False
+            result["snapped_to_reference"] = False
 
         return result
     

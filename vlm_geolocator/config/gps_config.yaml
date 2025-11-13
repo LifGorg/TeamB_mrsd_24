@@ -1,0 +1,19 @@
+# GPS Configuration
+gps:
+  # Reference locations (latitude, longitude)
+  reference_points:
+    - latitude: 40.425316
+      longitude: -79.954344
+    
+    - latitude: 40.425373
+      longitude: -79.954232
+    
+    - latitude: 40.425248
+      longitude: -79.954145
+  
+  # GPS calculation parameters
+  earth_radius_lat: 111042.60  # meters per degree latitude
+  
+  # Whether to snap estimates to nearest reference location
+  snap_to_reference: true
+

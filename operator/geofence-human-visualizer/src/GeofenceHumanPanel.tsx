@@ -54,6 +54,9 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const [status, setStatus] = useState<string>("Initializing...");
   const [selectedWaypoint, setSelectedWaypoint] = useState<{lat: number, lon: number} | null>(null);
   const [waypointAltitude, setWaypointAltitude] = useState<number>(8.0); // User-configurable altitude
+  
+  // Global waypoint counter for unique IDs across missions
+  const globalWaypointCounterRef = useRef<number>(0);
 
   // Topic names
   const GEOFENCE_TOPIC = "/dtc_mrsd_/mavros/geofence/fences";
@@ -389,63 +392,48 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
             console.log("[GeofenceMap] 🗺️ Map exists:", !!map);
             console.log("[GeofenceMap] 📍 Current markers count:", missionWaypointMarkersRef.current.size);
 
-            // Add or update waypoint markers (persistent)
+            // Always create new waypoint markers with global IDs (never update existing ones)
+            // This ensures all waypoints from all missions are preserved on the map
             waypoints.forEach((wp: any, index: number) => {
               const lat = wp.x_lat;
               const lon = wp.y_long;
               const frame = wp.frame || 0;
               const command = wp.command || 0;
               
-              console.log(`[GeofenceMap] 📍 Processing waypoint ${index + 1}:`, {lat, lon, frame, command});
+              // Assign global unique ID
+              const globalId = globalWaypointCounterRef.current;
+              globalWaypointCounterRef.current += 1;
               
-              // Create unique ID for this waypoint
-              const waypointId = index;
+              console.log(`[GeofenceMap] ➕ Creating NEW waypoint #${globalId} (mission index: ${index}) at [${lat}, ${lon}]`);
+              
+              // Create new persistent waypoint marker (purple diamond) with global ID
+              const icon = L.divIcon({
+                className: "mission-waypoint-marker",
+                html: `<div style="background-color: #9c27b0; width: 16px; height: 16px; transform: rotate(45deg); border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,0.5);"><span style="transform: rotate(-45deg); color: white; font-weight: bold; font-size: 9px;">${globalId}</span></div>`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8],
+              });
 
-              // Check if marker already exists
-              if (missionWaypointMarkersRef.current.has(waypointId)) {
-                console.log(`[GeofenceMap] 🔄 Updating existing marker ${index + 1}`);
-                const marker = missionWaypointMarkersRef.current.get(waypointId)!;
-                const currentLatLng = marker.getLatLng();
-                // Update only if coordinates changed
-                if (Math.abs(currentLatLng.lat - lat) > 1e-6 || 
-                    Math.abs(currentLatLng.lng - lon) > 1e-6) {
-                  marker.setLatLng([lat, lon]);
-                  marker.setPopupContent(
-                    `<b>Mission Waypoint ${index + 1}</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>Frame: ${frame}<br>Command: ${command}`
-                  );
-                  console.log(`[GeofenceMap] ✅ Updated marker ${index + 1} position`);
-                }
-              } else {
-                console.log(`[GeofenceMap] ➕ Creating NEW marker ${index + 1} at [${lat}, ${lon}]`);
-                // Create new persistent waypoint marker (purple diamond)
-                const icon = L.divIcon({
-                  className: "mission-waypoint-marker",
-                  html: `<div style="background-color: #9c27b0; width: 16px; height: 16px; transform: rotate(45deg); border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,0.5);"><span style="transform: rotate(-45deg); color: white; font-weight: bold; font-size: 9px;">${index + 1}</span></div>`,
-                  iconSize: [16, 16],
-                  iconAnchor: [8, 8],
-                });
+              try {
+                console.log(`[GeofenceMap] 🔨 Creating marker for global waypoint #${globalId}...`);
+                const marker = L.marker([lat, lon], { icon });
+                console.log(`[GeofenceMap] 🔨 Adding marker to map...`);
+                marker.addTo(map);
+                console.log(`[GeofenceMap] 🔨 Binding popup...`);
+                marker.bindPopup(
+                  `<b>Waypoint #${globalId}</b><br>Mission Index: ${index}<br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>Frame: ${frame}<br>Command: ${command}`
+                );
 
-                try {
-                  console.log(`[GeofenceMap] 🔨 Creating marker for waypoint ${index + 1}...`);
-                  const marker = L.marker([lat, lon], { icon });
-                  console.log(`[GeofenceMap] 🔨 Adding marker to map...`);
-                  marker.addTo(map);
-                  console.log(`[GeofenceMap] 🔨 Binding popup...`);
-                  marker.bindPopup(
-                    `<b>Mission Waypoint ${index + 1}</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>Frame: ${frame}<br>Command: ${command}`
-                  );
-
-                  console.log(`[GeofenceMap] 🔨 Storing marker reference...`);
-                  missionWaypointMarkersRef.current.set(waypointId, marker);
-                  console.log(`[GeofenceMap] ✅ Successfully added marker ${index + 1}. Total markers:`, missionWaypointMarkersRef.current.size);
-                } catch (error) {
-                  console.error(`[GeofenceMap] ❌ Failed to create marker ${index + 1}:`, error);
-                }
+                console.log(`[GeofenceMap] 🔨 Storing marker reference...`);
+                missionWaypointMarkersRef.current.set(globalId, marker);
+                console.log(`[GeofenceMap] ✅ Successfully added global waypoint #${globalId}. Total markers:`, missionWaypointMarkersRef.current.size);
+              } catch (error) {
+                console.error(`[GeofenceMap] ❌ Failed to create marker for global waypoint #${globalId}:`, error);
               }
             });
 
             console.log(`[GeofenceMap] ✅ Mission waypoints processing complete. Total markers on map:`, missionWaypointMarkersRef.current.size);
-            setStatus(`Mission: ${waypoints.length} waypoints`);
+            setStatus(`Waypoints: ${missionWaypointMarkersRef.current.size} total (${waypoints.length} in this mission)`);
           } else {
             console.log("[GeofenceMap] ⚠️ Invalid waypoints data structure");
           }
