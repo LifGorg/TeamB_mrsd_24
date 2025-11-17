@@ -7,6 +7,13 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
+# Try to import cv2 for optional display functionality
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
 
 class VideoFrameReceiver:
     """GStreamer视频帧接收器"""
@@ -16,6 +23,9 @@ class VideoFrameReceiver:
         Args:
             pipeline_str: GStreamer管道字符串
             frame_callback: 帧回调函数 callback(frame: np.ndarray, timestamp: float)
+        
+        Note:
+            调试显示功能已移除。请使用ROS2图像话题 + Foxglove/rqt_image_view 查看视频流。
         """
         Gst.init(None)
         

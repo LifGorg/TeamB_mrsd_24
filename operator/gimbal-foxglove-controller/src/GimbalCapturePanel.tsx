@@ -14,11 +14,13 @@ import { createRoot } from "react-dom/client";
 type PanelConfig = {
   captureTopic: string; // e.g. "/trigger_capture"
   recordTopic: string; // e.g. "/trigger_record"
+  generateReportTopic: string; // e.g. "/generate_report"
 };
 
 const DEFAULT_CONFIG: PanelConfig = {
   captureTopic: "/trigger_capture",
   recordTopic: "/trigger_record",
+  generateReportTopic: "/generate_report",
 };
 
 function buildSettingsTree(
@@ -32,6 +34,7 @@ function buildSettingsTree(
       const raw = (action as any).payload.value as any;
       if (key === "captureTopic") setCfg({ captureTopic: String(raw ?? "") });
       if (key === "recordTopic") setCfg({ recordTopic: String(raw ?? "") });
+      if (key === "generateReportTopic") setCfg({ generateReportTopic: String(raw ?? "") });
     },
     nodes: {
       general: {
@@ -39,6 +42,7 @@ function buildSettingsTree(
         fields: {
           captureTopic: { label: "Capture topic", input: "string", value: cfg.captureTopic },
           recordTopic: { label: "Record topic", input: "string", value: cfg.recordTopic },
+          generateReportTopic: { label: "Generate Report topic", input: "string", value: cfg.generateReportTopic },
         },
       },
     },
@@ -92,6 +96,36 @@ function Button({ label, onClick, style }: {
   );
 }
 
+// Toggle button for continuous actions (generate report)
+function ToggleButton({ label, activeLabel, isActive, onClick, style }: {
+  label: string;
+  activeLabel: string;
+  isActive: boolean;
+  onClick: () => void;
+  style?: React.CSSProperties;
+}): ReactElement {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "12px 20px",
+        borderRadius: 8,
+        border: `2px solid ${isActive ? "#ff9800" : "#4a90e2"}`,
+        background: isActive ? "#ff9800" : "#f0f8ff",
+        color: isActive ? "#fff" : "#000",
+        cursor: "pointer",
+        fontWeight: 600,
+        fontSize: "14px",
+        minWidth: "160px",
+        transition: "all 0.2s",
+        ...style,
+      }}
+    >
+      {isActive ? activeLabel : label}
+    </button>
+  );
+}
+
 function GimbalCapturePanel({ context }: { context: PanelExtensionContext }): ReactElement {
   const [renderDone, setRenderDone] = useState<(() => void) | undefined>();
   const [cfg, setCfgState] = useState<PanelConfig>(() => ({
@@ -109,6 +143,10 @@ function GimbalCapturePanel({ context }: { context: PanelExtensionContext }): Re
   
   const [status, setStatus] = useState<string>("Ready for capture/record");
   const [lastAction, setLastAction] = useState<string>("");
+  
+  // Generate report state
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const reportIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // persist config
   const setCfg = (partial: Partial<PanelConfig>) => {
@@ -139,6 +177,7 @@ function GimbalCapturePanel({ context }: { context: PanelExtensionContext }): Re
   // Detect profile and advertise appropriate schema
   const advertisedCaptureRef = useRef<{ topic?: string; mode?: "ros" | "custom" }>({});
   const advertisedRecordRef = useRef<{ topic?: string; mode?: "ros" | "custom" }>({});
+  const advertisedGenerateReportRef = useRef<{ topic?: string; mode?: "ros" | "custom" }>({});
   const useRos = context.dataSourceProfile === "ros1" || context.dataSourceProfile === "ros2";
 
   const ensureAdvertised = () => {
@@ -192,18 +231,53 @@ function GimbalCapturePanel({ context }: { context: PanelExtensionContext }): Re
         console.error("[GimbalCapture] ✗ Failed to advertise record:", err);
       }
     }
+
+    // Advertise generate_report topic (std_msgs/Int32)
+    const generateReportTopic = cfg.generateReportTopic;
+    if (advertisedGenerateReportRef.current.topic !== generateReportTopic || advertisedGenerateReportRef.current.mode !== mode) {
+      try {
+        if (mode === "ros") {
+          const dt = context.dataSourceProfile === "ros1" ? ros1 : ros2;
+          const datatypes = new Map<string, unknown>([
+            ["std_msgs/Int32", (dt as any)["std_msgs/Int32"]],
+          ]);
+          try {
+            context.advertise(generateReportTopic, "std_msgs/Int32", { datatypes });
+          } catch {
+            context.advertise(generateReportTopic, "std_msgs/Int32");
+          }
+        } else {
+          context.advertise(generateReportTopic, "std_msgs/Int32");
+        }
+        advertisedGenerateReportRef.current = { topic: generateReportTopic, mode };
+        console.log("[GimbalCapture] ✓ Advertised generate_report topic:", generateReportTopic);
+      } catch (err) {
+        console.error("[GimbalCapture] ✗ Failed to advertise generate_report:", err);
+      }
+    }
   };
 
   useEffect(() => {
     ensureAdvertised();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cfg.captureTopic, cfg.recordTopic, useRos]);
+  }, [cfg.captureTopic, cfg.recordTopic, cfg.generateReportTopic, useRos]);
 
   const publishBool = (topic: string, value: boolean) => {
     try {
       const msg = { data: value };
       context.publish?.(topic, msg);
       console.log("[GimbalCapture] Published Bool to", topic, ":", msg);
+    } catch (err) {
+      console.error("[GimbalCapture] ✗ Failed to publish to", topic, ":", err);
+      setStatus(`发布失败: ${err}`);
+    }
+  };
+
+  const publishInt32 = (topic: string, value: number) => {
+    try {
+      const msg = { data: value };
+      context.publish?.(topic, msg);
+      console.log("[GimbalCapture] Published Int32 to", topic, ":", msg);
     } catch (err) {
       console.error("[GimbalCapture] ✗ Failed to publish to", topic, ":", err);
       setStatus(`发布失败: ${err}`);
@@ -241,6 +315,41 @@ function GimbalCapturePanel({ context }: { context: PanelExtensionContext }): Re
     setStatus("Record toggled");
     setTimeout(() => setStatus("Ready for capture/record"), 2000);
   };
+
+  const toggleGenerateReport = () => {
+    if (isGeneratingReport) {
+      // Stop generating
+      if (reportIntervalRef.current) {
+        clearInterval(reportIntervalRef.current);
+        reportIntervalRef.current = null;
+      }
+      publishInt32(cfg.generateReportTopic, 0);
+      setIsGeneratingReport(false);
+      setLastAction("Report Generation Stopped");
+      setStatus("Report generation stopped");
+      setTimeout(() => setStatus("Ready for capture/record"), 2000);
+    } else {
+      // Start generating
+      publishInt32(cfg.generateReportTopic, 1);
+      setIsGeneratingReport(true);
+      setLastAction("Report Generation Started");
+      setStatus("Generating report...");
+      
+      // Continuously publish 1 (every 1 second)
+      reportIntervalRef.current = setInterval(() => {
+        publishInt32(cfg.generateReportTopic, 1);
+      }, 1000);
+    }
+  };
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (reportIntervalRef.current) {
+        clearInterval(reportIntervalRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div style={{ padding: 20, fontFamily: "sans-serif" }}>
@@ -288,6 +397,12 @@ function GimbalCapturePanel({ context }: { context: PanelExtensionContext }): Re
             onClick={sendRecord}
             style={{ borderColor: "#e24a4a", background: "#fff0f0" }}
           />
+          <ToggleButton
+            label="📊 Generate Report"
+            activeLabel="⏹️ Stop Generating"
+            isActive={isGeneratingReport}
+            onClick={toggleGenerateReport}
+          />
         </div>
       </div>
 
@@ -298,8 +413,11 @@ function GimbalCapturePanel({ context }: { context: PanelExtensionContext }): Re
         <div style={{ marginBottom: 4 }}>
           <strong>Record Topic:</strong> {cfg.recordTopic} (std_msgs/Bool)
         </div>
+        <div style={{ marginBottom: 4 }}>
+          <strong>Generate Report Topic:</strong> {cfg.generateReportTopic} (std_msgs/Int32)
+        </div>
         <div>
-          Click buttons to trigger capture or toggle recording.
+          Click buttons to trigger capture, toggle recording, or generate reports.
         </div>
         <div style={{ marginTop: 8, fontStyle: "italic", color: "#999" }}>
           Note: Pan/tilt/zoom teleoperation controls have been removed. Use joystick controller for manual gimbal control.

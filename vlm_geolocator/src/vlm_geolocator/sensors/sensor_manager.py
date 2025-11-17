@@ -32,16 +32,19 @@ class SensorManager:
             stale_warning: Sensor data stale warning threshold (seconds)
             use_gimbal: Whether to use gimbal sensor input; if False, assume fixed attitude
             default_gimbal_attitude: Default gimbal attitude (roll, pitch, yaw in radians) when use_gimbal is False
+                                   MUST be provided from camera_config.yaml, no hardcoded fallback
         """
         self.timeout = timeout
         self.stale_warning = stale_warning
         self.use_gimbal = use_gimbal
+        
         if default_gimbal_attitude is None:
-            # Default: no roll/yaw, 60 degrees down pitch
-            # This default is also configurable in camera_config.yaml
-            self.default_gimbal_attitude = (0.0, -np.pi / 3.0, 0.0)
-        else:
-            self.default_gimbal_attitude = default_gimbal_attitude
+            raise ValueError(
+                "default_gimbal_attitude must be provided from camera_config.yaml. "
+                "Cannot use hardcoded values. Please ensure config is loaded properly."
+            )
+        
+        self.default_gimbal_attitude = default_gimbal_attitude
         
         # Sensor data
         self._gps: Optional[SensorData] = None

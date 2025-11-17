@@ -16,9 +16,10 @@ class CameraConfig:
     fy: float
     cx: float
     cy: float
-    gimbal_roll_deg: float = 0.0
-    gimbal_pitch_deg: float = -60.0
-    gimbal_yaw_deg: float = 0.0
+    # Gimbal attitude - NO hardcoded defaults, must come from camera_config.yaml
+    gimbal_roll_deg: float
+    gimbal_pitch_deg: float
+    gimbal_yaw_deg: float
     
     @property
     def intrinsic_matrix(self) -> np.ndarray:
@@ -42,18 +43,52 @@ class CameraConfig:
 @dataclass
 class GStreamerConfig:
     """GStreamer Configuration"""
+    mode: str  # "auto" or "custom"
+    
+    # Auto mode parameters
     udp_port: int
     buffer_size: int
     latency: int
     encoding: str
     max_buffers: int
     drop: bool
+    multicast_enabled: bool = False
+    multicast_address: str = ""
+    multicast_interface: str = ""
+    
+    # Custom mode parameter
+    custom_pipeline: str = ""
     
     def get_pipeline_string(self) -> str:
-        """Generate GStreamer pipeline string"""
+        """Generate GStreamer pipeline string
+        
+        Returns:
+            - custom_pipeline if mode="custom"
+            - auto-generated pipeline if mode="auto"
+        """
+        # Custom mode: use provided pipeline string
+        if self.mode == "custom":
+            if not self.custom_pipeline or not self.custom_pipeline.strip():
+                raise ValueError(
+                    "GStreamer mode is set to 'custom' but custom_pipeline is empty. "
+                    "Either provide a custom_pipeline or set mode to 'auto'."
+                )
+            return self.custom_pipeline.strip()
+        
+        # Auto mode: generate pipeline from parameters
+        if self.mode != "auto":
+            raise ValueError(f"Invalid GStreamer mode: '{self.mode}'. Must be 'auto' or 'custom'.")
+        
         decoder = 'rtph265depay ! h265parse ! avdec_h265' if self.encoding == 'H265' else 'rtph264depay ! h264parse ! avdec_h264'
+        
+        # Build udpsrc with multicast support if enabled
+        if self.multicast_enabled:
+            udpsrc = f"udpsrc address={self.multicast_address} port={self.udp_port} multicast-iface={self.multicast_interface} buffer-size={self.buffer_size} auto-multicast=true"
+        else:
+            udpsrc = f"udpsrc port={self.udp_port} buffer-size={self.buffer_size}"
+        
         # Single-line pipeline (no newlines)
-        pipeline = f"udpsrc port={self.udp_port} buffer-size={self.buffer_size} ! application/x-rtp,media=video,clock-rate=90000,encoding-name={self.encoding},payload=96 ! rtpjitterbuffer latency={self.latency} ! {decoder} ! videoconvert ! video/x-raw,format=BGR ! appsink name=appsink0 emit-signals=true max-buffers={self.max_buffers} drop={str(self.drop).lower()}"
+        pipeline = f"{udpsrc} ! application/x-rtp,media=video,clock-rate=90000,encoding-name={self.encoding},payload=96 ! rtpjitterbuffer latency={self.latency} ! {decoder} ! videoconvert ! video/x-raw,format=BGR ! appsink name=appsink0 emit-signals=true max-buffers={self.max_buffers} drop={str(self.drop).lower()}"
         return pipeline
 
 
@@ -78,7 +113,13 @@ class SystemConfig:
     model_device: str
     model_dtype: str
     gps_earth_radius_lat: float
+    gps_snap_noise_meters: float
     thread_pool_max_workers: int
+    debug_display_enabled: bool
+    debug_display_interval: int
+    debug_display_window_name: str
+    video_recording_duration: float
+    video_recording_min_fps: float
 
 
 class ConfigManager:
@@ -109,8 +150,22 @@ class ConfigManager:
         camera_data = self._load_yaml("camera_config.yaml")
         cam_cfg = camera_data['camera']
         
-        # Load gimbal attitude if present
-        gimbal_attitude = cam_cfg.get('gimbal_attitude', {})
+        # Load gimbal attitude - REQUIRED, no hardcoded defaults
+        gimbal_attitude = cam_cfg.get('gimbal_attitude')
+        if gimbal_attitude is None:
+            raise ValueError(
+                "Missing 'gimbal_attitude' in camera_config.yaml. "
+                "This configuration is required and must include roll, pitch, and yaw values."
+            )
+        
+        # Verify all required gimbal attitude fields are present
+        required_fields = ['roll', 'pitch', 'yaw']
+        missing_fields = [f for f in required_fields if f not in gimbal_attitude]
+        if missing_fields:
+            raise ValueError(
+                f"Missing gimbal_attitude fields in camera_config.yaml: {', '.join(missing_fields)}. "
+                f"Required fields: {', '.join(required_fields)}"
+            )
         
         self.camera = CameraConfig(
             name=cam_cfg['name'],
@@ -120,20 +175,34 @@ class ConfigManager:
             fy=cam_cfg['intrinsics']['fy'],
             cx=cam_cfg['intrinsics']['cx'],
             cy=cam_cfg['intrinsics']['cy'],
-            gimbal_roll_deg=gimbal_attitude.get('roll', 0.0),
-            gimbal_pitch_deg=gimbal_attitude.get('pitch', -60.0),
-            gimbal_yaw_deg=gimbal_attitude.get('yaw', 0.0)
+            gimbal_roll_deg=gimbal_attitude['roll'],
+            gimbal_pitch_deg=gimbal_attitude['pitch'],
+            gimbal_yaw_deg=gimbal_attitude['yaw']
         )
         
         # Load GStreamer configuration
         gst_data = self._load_yaml("camera_config.yaml")['gstreamer']
+        mode = gst_data.get('mode', 'auto')
+        
+        # Validate mode
+        if mode not in ['auto', 'custom']:
+            raise ValueError(
+                f"Invalid GStreamer mode '{mode}' in camera_config.yaml. "
+                "Must be 'auto' or 'custom'."
+            )
+        
         self.gstreamer = GStreamerConfig(
-            udp_port=gst_data['udp_port'],
-            buffer_size=gst_data['buffer_size'],
-            latency=gst_data['latency'],
-            encoding=gst_data['encoding'],
-            max_buffers=gst_data['max_buffers'],
-            drop=gst_data['drop']
+            mode=mode,
+            udp_port=gst_data.get('udp_port', 5000),
+            buffer_size=gst_data.get('buffer_size', 4194304),
+            latency=gst_data.get('latency', 300),
+            encoding=gst_data.get('encoding', 'H264'),
+            max_buffers=gst_data.get('max_buffers', 2),
+            drop=gst_data.get('drop', True),
+            multicast_enabled=gst_data.get('multicast_enabled', False),
+            multicast_address=gst_data.get('multicast_address', ''),
+            multicast_interface=gst_data.get('multicast_interface', ''),
+            custom_pipeline=gst_data.get('custom_pipeline', '')
         )
         
         # Load ROS2 configuration
@@ -147,6 +216,13 @@ class ConfigManager:
         
         # Load system configuration
         system_data = self._load_yaml("system_config.yaml")['system']
+        debug_display = system_data.get('debug_display', {})
+        video_recording = system_data.get('video_recording', {})
+        
+        # Load GPS configuration for snap noise
+        gps_data = self._load_yaml("gps_config.yaml")['gps']
+        snap_noise_meters = gps_data.get('snap_noise_meters', 0.8)  # Default 0.8m if not specified
+        
         self.system = SystemConfig(
             sensor_timeout=system_data['sensor_timeout'],
             sensor_stale_warning=system_data['sensor_stale_warning'],
@@ -157,7 +233,13 @@ class ConfigManager:
             model_device=system_data['model']['device'],
             model_dtype=system_data['model']['dtype'],
             gps_earth_radius_lat=system_data['gps']['earth_radius_lat'],
-            thread_pool_max_workers=system_data['thread_pool']['max_workers']
+            gps_snap_noise_meters=snap_noise_meters,
+            thread_pool_max_workers=system_data['thread_pool']['max_workers'],
+            debug_display_enabled=debug_display.get('enabled', False),
+            debug_display_interval=debug_display.get('display_interval', 30),
+            debug_display_window_name=debug_display.get('window_name', 'Video Feed'),
+            video_recording_duration=video_recording.get('duration', 5.0),
+            video_recording_min_fps=video_recording.get('min_fps', 2.0)
         )
     
     def get_camera_config(self) -> CameraConfig:

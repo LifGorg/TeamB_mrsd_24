@@ -1,16 +1,40 @@
 # camera configuration
 camera:
   name: "RealSense D435"
-  resolution:
-    width: 1280
-    height: 720
+  # resolution:
+  #   width: 1280
+  #   height: 720
   
-  # camera intrinsics matrix
+  # # camera intrinsics matrix
+  # intrinsics:
+  #   fx: 920.407043457031
+  #   fy: 920.293395996094
+  #   cx: 638.451110839844
+  #   cy: 373.086090087891
+
+  # Low Motion Blur Configuration
+  # 640 480
+  resolution:
+    width: 640
+    height: 480
+
   intrinsics:
-    fx: 920.407043457031
-    fy: 920.293395996094
-    cx: 638.451110839844
-    cy: 373.086090087891
+    fx: 613.604675292969
+    fy: 613.528930664062
+    cx: 318.967407226562
+    cy: 248.724060058594
+
+  # 424 240
+  # resolution:
+  #   width: 424
+  #   height: 240
+
+  # intrinsics:
+  #   fx: 306.802307128906
+  #   fy: 306.764465332031
+  #   cx: 211.483703613281
+  #   cy: 124.362030029297
+
 
   ## EO camera intrinsics
   # intrinsics:
@@ -25,18 +49,38 @@ camera:
   #   cy: 255.5
 
   # Gimbal/Camera attitude (in degrees)
-  # Used when gimbal sensor is not available
+  # Used when gimbal sensor is not available (fixed camera configuration)
   gimbal_attitude:
     roll: 0.0      # degrees (no roll)
-    pitch: -60.0   # degrees (pointing downward 60 degrees)
+    pitch: -45.0   # degrees (pointing downward 45 degrees)
     yaw: 0.0       # degrees (no yaw)
 
 # GStreamer configuration
 gstreamer:
-  udp_port: 5600
-  buffer_size: 2097152
-  latency: 200
+  # Pipeline mode: "auto" or "custom"
+  # - "auto": Generate pipeline from parameters below
+  # - "custom": Use custom_pipeline string directly (ignores other parameters)
+  mode: "auto"
+  
+  # ==== AUTO MODE PARAMETERS ====
+  # Used when mode = "auto"
+  
+  # Multicast configuration
+  multicast_enabled: false
+  multicast_address: "239.255.0.1"
+  multicast_interface: "enx00e04c6802a8"
+  udp_port: 5000
+  buffer_size: 2097152 #4194304
+  latency: 300 #100-300 on rtpjitterbuffer depending on  iperf latency
   encoding: "H264"
-  max_buffers: 1
+  max_buffers: 2 
   drop: true
+  
+  # ==== CUSTOM MODE PARAMETERS ====
+  # Used when mode = "custom"
+  # Provide complete GStreamer pipeline string (must end with appsink)
+  # Example format: "udpsrc ... ! rtpjitterbuffer ... ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR ! appsink name=appsink0 emit-signals=true max-buffers=1 drop=true"
+  custom_pipeline: ""
+
+
 

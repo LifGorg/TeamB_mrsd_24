@@ -219,11 +219,19 @@ class GPSCalculator:
             d_north = (snapped_lat - lat) * self.earth_radius_lat
             d_east = (snapped_lon - lon) * meters_per_deg_lon
             result.update({
+                # Store original estimation before snapping
+                "original_latitude": estimated_lat,
+                "original_longitude": estimated_lon,
+                "original_offset_north": north_offset,
+                "original_offset_east": east_offset,
+                "original_lateral_distance": float(np.hypot(east_offset, north_offset)),
+                # Update with snapped values
                 "estimated_latitude": snapped_lat,
                 "estimated_longitude": snapped_lon,
                 "offset_north": d_north,
                 "offset_east": d_east,
                 "lateral_distance": float(np.hypot(d_east, d_north)),
+                # Snapping metadata
                 "snapped_to_reference": True,
                 "snapped_index": idx + 1,  # 1-based index
                 "snap_distance_m": snap_dist_m,
@@ -253,7 +261,7 @@ class GPSCalculator:
         Returns:
             Estimation result dictionary
         """
-        # Verify required data exists (GPS/Heading/Altitude). for realsense, gimbal assume fixed down.
+        # Verify required data exists (GPS/Heading/Altitude/Gimbal)
         missing_data = []
         if sensor_snapshot['gps'] is None:
             missing_data.append("GPS")
@@ -261,8 +269,8 @@ class GPSCalculator:
             missing_data.append("Heading")
         if sensor_snapshot['altitude'] is None:
             missing_data.append("Altitude")
-        # if sensor_snapshot['gimbal'] is None:
-        #     missing_data.append("Gimbal Attitude")
+        if sensor_snapshot['gimbal'] is None:
+            missing_data.append("Gimbal Attitude (must be provided from camera_config.yaml)")
         
         if missing_data:
             raise ValueError(
@@ -270,11 +278,9 @@ class GPSCalculator:
                 f"Missing sensor data: {', '.join(missing_data)}"
             )
             
-        # For realsense/fixed camera, gimbal attitude should be provided from config.
-        # This is a fallback default if not provided via estimate_target_gps directly.
-        # NOTE: This value should match camera_config.yaml's gimbal_attitude settings.
-        # roll = 0 rad, pitch = -pi/3 rad (camera down 60 degrees), yaw = 0 rad
-        gimbal_attitude = (0.0, -np.pi / 3.0, 0.0)
+        # Use gimbal attitude from sensor snapshot (which comes from camera_config.yaml)
+        # NO hardcoded fallback values allowed
+        gimbal_attitude = sensor_snapshot['gimbal']
 
         return self.estimate_target_gps(
             pixel_x=pixel_x,
@@ -282,6 +288,5 @@ class GPSCalculator:
             drone_gps=sensor_snapshot['gps'],
             drone_heading=sensor_snapshot['heading'],
             drone_altitude=sensor_snapshot['altitude'],
-            # gimbal_attitude=sensor_snapshot['gimbal']
-            gimbal_attitude=gimbal_attitude
+            gimbal_attitude=gimbal_attitude  # From config, not hardcoded
         )

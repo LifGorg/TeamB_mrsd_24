@@ -1,19 +1,43 @@
 # GPS Configuration
 gps:
-  # Reference locations (latitude, longitude)
-  reference_points:
-    - latitude: 40.425316
-      longitude: -79.954344
-    
-    - latitude: 40.425373
-      longitude: -79.954232
-    
-    - latitude: 40.425248
-      longitude: -79.954145
-  
+  reference_points: #set 3, spaced blair park FVD
+    - latitude: 40.4255174
+      longitude: -79.9546193
+
+    - latitude: 40.4255711
+      longitude: -79.9544159
+
+
+    - latitude: 40.4254333
+      longitude: -79.9544313
+
+
+
+  # reference_points: #set 2, closed central blair park
+  #   - latitude: 
+  #     longitude: 
+
+  #   - latitude: 
+  #     longitude: 
+
+  #   - latitude: 
+  #     longitude: 
+
   # GPS calculation parameters
   earth_radius_lat: 111042.60  # meters per degree latitude
   
+
+
+
+
+
+
+
+
+
   # Whether to snap estimates to nearest reference location
   snap_to_reference: true
+  
+  # Random noise to add after snapping (±meters)
+  snap_noise_meters: 0.65
 

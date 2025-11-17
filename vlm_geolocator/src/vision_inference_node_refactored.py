@@ -11,6 +11,7 @@ Features:
 import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
+from sensor_msgs.msg import Image
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +24,13 @@ try:
     import cv2
 except Exception:
     cv2 = None
+
+try:
+    from cv_bridge import CvBridge
+    CVBRIDGE_AVAILABLE = True
+except ImportError:
+    CVBRIDGE_AVAILABLE = False
+    print("[VisionInferenceNode] WARNING: cv_bridge not available, debug image publishing disabled")
 
 # Import refactored modules
 from vlm_geolocator.core import ConfigManager
@@ -41,9 +49,23 @@ class VisionInferenceNode(Node):
         # Record startup time
         self.node_start_time = time.time()
         
+        # Pre-initialize attributes that will be used in callbacks
+        # (VideoFrameReceiver starts immediately and may call callbacks before full init)
+        self.debug_image_publisher = None
+        self.debug_frame_counter = 0
+        self.video_recorder = None
+        
         # Load configuration
         self.get_logger().info('Loading configuration...')
         self.config = ConfigManager(config_dir)
+        
+        # Initialize CvBridge for image conversion (if available)
+        if CVBRIDGE_AVAILABLE:
+            self.cv_bridge = CvBridge()
+        else:
+            self.cv_bridge = None
+            if self.config.system.debug_display_enabled:
+                self.get_logger().warn('⚠️  cv_bridge not available, debug image publishing disabled')
         
         # Initialize sensor manager
         self.get_logger().info('Initializing sensor manager...')
@@ -58,7 +80,8 @@ class VisionInferenceNode(Node):
         self.get_logger().info('Initializing GPS calculator...')
         self.gps_calculator = GPSCalculator(
             intrinsic_matrix=self.config.camera.intrinsic_matrix,
-            earth_radius_lat=self.config.system.gps_earth_radius_lat
+            earth_radius_lat=self.config.system.gps_earth_radius_lat,
+            snap_noise_meters=self.config.system.gps_snap_noise_meters
         )
         
         # Initialize video recorder (before video receiver to avoid AttributeError)
@@ -67,7 +90,8 @@ class VisionInferenceNode(Node):
         try:
             self.video_recorder = VideoRecorder(
                 output_dir=str(video_dir),
-                fps=30
+                fps=30,
+                ros_node=self  # 传递节点实例以订阅GPS
             )
         except RuntimeError as e:
             self.get_logger().warn(f'Video recorder initialization failed: {e}')
@@ -103,6 +127,30 @@ class VisionInferenceNode(Node):
         self.publisher_manager.create_casualty_geolocated_publisher(
             self.config.ros2.output_topics['casualty_geolocated']
         )
+        
+        # Debug image publisher (for visualization in web_video_server/Foxglove)
+        # Publish raw Image - web_video_server will handle compression for HTTP streaming
+        if self.config.system.debug_display_enabled and CVBRIDGE_AVAILABLE and self.cv_bridge is not None:
+            self.debug_image_publisher = self.create_publisher(
+                Image,
+                '/vlm_geolocator/debug/camera_feed',
+                10
+            )
+            self.debug_frame_counter = 0
+            self.get_logger().info(
+                f'📷 Debug image publisher enabled: /vlm_geolocator/debug/camera_feed '
+                f'(every {self.config.system.debug_display_interval} frames)'
+            )
+            self.get_logger().info(
+                f'   View in browser: http://localhost:8080/stream?topic=/vlm_geolocator/debug/camera_feed'
+            )
+        else:
+            self.debug_image_publisher = None
+            if self.config.system.debug_display_enabled and not CVBRIDGE_AVAILABLE:
+                self.get_logger().warn(
+                    '⚠️  Debug display enabled but cv_bridge not available. '
+                    'Install: sudo apt install ros-humble-cv-bridge'
+                )
         
         # Initialize ROS2 subscribers
         self.get_logger().info('Initializing ROS2 subscribers...')
@@ -269,6 +317,21 @@ class VisionInferenceNode(Node):
         # 将帧传递给视频录制器
         if self.video_recorder is not None:
             self.video_recorder.add_frame(frame)
+        
+        # 发布调试图像（如果启用）
+        if self.debug_image_publisher is not None:
+            self.debug_frame_counter += 1
+            if self.debug_frame_counter % self.config.system.debug_display_interval == 0:
+                try:
+                    # 发布原始 BGR 图像（web_video_server 会自动压缩为 MJPEG/H264）
+                    image_msg = self.cv_bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+                    image_msg.header.stamp = self.get_clock().now().to_msg()
+                    image_msg.header.frame_id = 'camera'
+                    self.debug_image_publisher.publish(image_msg)
+                except Exception as e:
+                    self.get_logger().error(f'Failed to publish debug image: {e}')
+                    # 禁用以避免重复错误
+                    self.debug_image_publisher = None
     
     def _gps_callback(self, msg):
         """GPS callback"""
@@ -304,10 +367,15 @@ class VisionInferenceNode(Node):
                 self.get_logger().warn('⚠️  Already recording video, ignoring trigger')
                 return
             
-            self.get_logger().info('🎥 Video recording triggered')
-            output_path = self.video_recorder.start_recording(duration=5.0)
+            # 从配置中读取录制参数
+            duration = self.config.system.video_recording_duration
+            min_fps = self.config.system.video_recording_min_fps
+            min_frames = int(duration * min_fps)
+            
+            self.get_logger().info(f'🎥 Video recording triggered (duration={duration}s, min_fps={min_fps})')
+            output_path = self.video_recorder.start_recording(duration=duration, min_fps=min_fps)
             if output_path:
-                self.get_logger().info(f'📹 Recording 5-second video to: {output_path}')
+                self.get_logger().info(f'📹 Recording {duration}s video (≥{min_fps}fps, ≥{min_frames} frames) to: {output_path}')
             else:
                 self.get_logger().warn('⚠️  Failed to start recording')
     
@@ -457,6 +525,8 @@ class VisionInferenceNode(Node):
                         'published_topic': self.config.ros2.output_topics['casualty_geolocated'],
                         'published_at_epoch': time.time(),
                         'status': 'published',
+                        # Save complete GPS calculation result (includes original estimation if snapping is enabled)
+                        'gps_calculation': gps_result,
                     })
                 except Exception as e:
                     err_msg = str(e)

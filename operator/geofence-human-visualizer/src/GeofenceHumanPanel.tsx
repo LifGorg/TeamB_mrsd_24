@@ -53,7 +53,9 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const selectedWaypointMarkerRef = useRef<LeafletMarker | null>(null);
   const [status, setStatus] = useState<string>("Initializing...");
   const [selectedWaypoint, setSelectedWaypoint] = useState<{lat: number, lon: number} | null>(null);
-  const [waypointAltitude, setWaypointAltitude] = useState<number>(8.0); // User-configurable altitude
+  const [waypointAltitude, setWaypointAltitude] = useState<number>(6.0); // User-configurable altitude
+  const [geofenceMappingAltitude, setGeofenceMappingAltitude] = useState<number>(10.0); // Geofence mapping altitude
+  const [surveyAltitude, setSurveyAltitude] = useState<number>(6.0); // Survey altitude
   
   // Global waypoint counter for unique IDs across missions
   const globalWaypointCounterRef = useRef<number>(0);
@@ -65,6 +67,8 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const SELECTED_WAYPOINT_TOPIC = "/selected_waypoint";  // New topic for selected waypoint
   const DRONE_GPS_TOPIC = "/dtc_mrsd_/mavros/global_position/global";  // Drone position
   const DRONE_HEADING_TOPIC = "/dtc_mrsd_/mavros/global_position/compass_hdg";  // Drone heading
+  const GEOFENCE_MAPPING_ALTITUDE_TOPIC = "/geofence_mapping_altitude";  // Geofence mapping altitude
+  const SURVEY_ALTITUDE_TOPIC = "/survey_altitude";  // Survey altitude
 
   // Store drone position and heading
   const dronePositionRef = useRef<{lat: number, lon: number} | null>(null);
@@ -96,8 +100,10 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
     
     try {
       context.advertise(SELECTED_WAYPOINT_TOPIC, "sensor_msgs/NavSatFix");
+      context.advertise(GEOFENCE_MAPPING_ALTITUDE_TOPIC, "std_msgs/Float64");
+      context.advertise(SURVEY_ALTITUDE_TOPIC, "std_msgs/Float64");
       advertisedRef.current = true;
-      console.log("[GeofenceMap] ✓ Advertised:", SELECTED_WAYPOINT_TOPIC);
+      console.log("[GeofenceMap] ✓ Advertised:", SELECTED_WAYPOINT_TOPIC, GEOFENCE_MAPPING_ALTITUDE_TOPIC, SURVEY_ALTITUDE_TOPIC);
     } catch (error) {
       console.error("[GeofenceMap] ✗ Advertise failed:", error);
     }
@@ -140,6 +146,44 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
       console.error("[GeofenceMap] ✗ Publish failed:", error);
     }
   }, [context, SELECTED_WAYPOINT_TOPIC, waypointAltitude]);
+
+  // Publish geofence mapping altitude
+  const publishGeofenceMappingAltitude = useCallback(() => {
+    if (!context.publish) return;
+    
+    ensureAdvertised();
+    
+    const msg = {
+      data: geofenceMappingAltitude,
+    };
+
+    try {
+      context.publish(GEOFENCE_MAPPING_ALTITUDE_TOPIC, msg);
+      console.log("[GeofenceMap] ✓ Published geofence_mapping_altitude:", geofenceMappingAltitude);
+      setStatus(`Published geofence mapping altitude: ${geofenceMappingAltitude}m`);
+    } catch (error) {
+      console.error("[GeofenceMap] ✗ Publish geofence_mapping_altitude failed:", error);
+    }
+  }, [context, GEOFENCE_MAPPING_ALTITUDE_TOPIC, geofenceMappingAltitude]);
+
+  // Publish survey altitude
+  const publishSurveyAltitude = useCallback(() => {
+    if (!context.publish) return;
+    
+    ensureAdvertised();
+    
+    const msg = {
+      data: surveyAltitude,
+    };
+
+    try {
+      context.publish(SURVEY_ALTITUDE_TOPIC, msg);
+      console.log("[GeofenceMap] ✓ Published survey_altitude:", surveyAltitude);
+      setStatus(`Published survey altitude: ${surveyAltitude}m`);
+    } catch (error) {
+      console.error("[GeofenceMap] ✗ Publish survey_altitude failed:", error);
+    }
+  }, [context, SURVEY_ALTITUDE_TOPIC, surveyAltitude]);
 
   // Zoom to drone position
   const zoomToDrone = () => {
@@ -229,8 +273,7 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
       selectedWaypointMarkerRef.current = marker;
       setSelectedWaypoint({ lat, lon: lng });
 
-      // Publish waypoint to ROS topic
-      publishSelectedWaypoint(lat, lng, 5.0); // Default altitude 5m
+      // Publish waypoint to ROS topic - we'll call publishSelectedWaypoint via useEffect when selectedWaypoint changes
     });
 
     mapRef.current = map;
@@ -247,7 +290,14 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
       map.remove();
       mapRef.current = null;
     };
-  }, [publishSelectedWaypoint]);
+  }, []); // Remove publishSelectedWaypoint dependency to prevent map reset
+
+  // Publish selected waypoint when it changes or altitude changes
+  useEffect(() => {
+    if (selectedWaypoint) {
+      publishSelectedWaypoint(selectedWaypoint.lat, selectedWaypoint.lon);
+    }
+  }, [selectedWaypoint, waypointAltitude, publishSelectedWaypoint]);
 
   // Process messages and update visualization
   useEffect(() => {
@@ -676,6 +726,98 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
           />
           <span style={{ fontSize: "10px", color: "#666" }}>
             (Set altitude for selected waypoints)
+          </span>
+        </div>
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          gap: "8px", 
+          marginTop: "6px",
+          fontSize: "11px" 
+        }}>
+          <label style={{ fontWeight: "600", color: "#333" }}>
+            Geofence Mapping Alt (m):
+          </label>
+          <input
+            type="number"
+            value={geofenceMappingAltitude}
+            onChange={(e) => setGeofenceMappingAltitude(parseFloat(e.target.value) || 0)}
+            min="0"
+            max="200"
+            step="0.5"
+            style={{
+              width: "70px",
+              padding: "3px 6px",
+              fontSize: "11px",
+              borderRadius: "3px",
+              border: "1px solid #ccc",
+              textAlign: "right"
+            }}
+          />
+          <button
+            onClick={publishGeofenceMappingAltitude}
+            style={{
+              padding: "3px 8px",
+              fontSize: "11px",
+              borderRadius: "3px",
+              border: "1px solid #4CAF50",
+              background: "#4CAF50",
+              color: "white",
+              cursor: "pointer",
+              fontWeight: "600",
+            }}
+            title="Publish geofence mapping altitude"
+          >
+            Send
+          </button>
+          <span style={{ fontSize: "10px", color: "#666" }}>
+            → /geofence_mapping_altitude
+          </span>
+        </div>
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          gap: "8px", 
+          marginTop: "6px",
+          fontSize: "11px" 
+        }}>
+          <label style={{ fontWeight: "600", color: "#333" }}>
+            Survey Altitude (m):
+          </label>
+          <input
+            type="number"
+            value={surveyAltitude}
+            onChange={(e) => setSurveyAltitude(parseFloat(e.target.value) || 0)}
+            min="0"
+            max="200"
+            step="0.5"
+            style={{
+              width: "70px",
+              padding: "3px 6px",
+              fontSize: "11px",
+              borderRadius: "3px",
+              border: "1px solid #ccc",
+              textAlign: "right"
+            }}
+          />
+          <button
+            onClick={publishSurveyAltitude}
+            style={{
+              padding: "3px 8px",
+              fontSize: "11px",
+              borderRadius: "3px",
+              border: "1px solid #4CAF50",
+              background: "#4CAF50",
+              color: "white",
+              cursor: "pointer",
+              fontWeight: "600",
+            }}
+            title="Publish survey altitude"
+          >
+            Send
+          </button>
+          <span style={{ fontSize: "10px", color: "#666" }}>
+            → /survey_altitude
           </span>
         </div>
         <div style={{ fontSize: "10px", color: "#999", marginTop: "4px" }}>

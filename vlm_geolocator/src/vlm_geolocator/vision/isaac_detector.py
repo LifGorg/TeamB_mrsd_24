@@ -146,6 +146,30 @@ class IsaacDetectorWrapper(DetectorInterface):
         image_height: int
     ) -> List[Tuple[float, float]]:
         """Parse model output"""
+        # First check if the model explicitly says no humans are detected
+        response_lower = response.lower()
+        negative_indicators = [
+            "no people",
+            "no person",
+            "no humans",
+            "no human",
+            "don't see any people",
+            "don't see any person",
+            "don't see people",
+            "don't see a person",
+            "do not see any people",
+            "do not see any person",
+            "cannot see any people",
+            "cannot see any person",
+            "no individuals",
+            "nobody",
+            "no one"
+        ]
+        
+        # If any negative indicator is found, return empty list
+        if any(indicator in response_lower for indicator in negative_indicators):
+            return []
+        
         # Match <point_box> (x1,y1) (x2,y2) </point_box>
         pattern = r'<point_box[^>]*>\s*\((\d+),(\d+)\)\s*\((\d+),(\d+)\)\s*</point_box>'
         matches = re.findall(pattern, response)

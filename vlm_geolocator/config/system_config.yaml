@@ -1,26 +1,44 @@
-# system configuration
+# System Configuration
 system:
-  # sensor data timeout setting (seconds)
-  sensor_timeout: 0.5
+  # Sensor timeouts and warnings (in seconds)
+  sensor_timeout: 10.0
   sensor_stale_warning: 3.0
-  warning_interval: 10.0
+  warning_interval: 5.0
   startup_grace_period: 5.0
   
-  # log directory
-  log_dir: "/home/triage/vlm_geolocator/inference_logs"
+  # Logging configuration
+  log_dir: "/home/triage/georgia_dtc_ops_team_chiron_mrsd/vlm_geolocator/inference_logs"
   
-  # model configuration
+  # Model configuration
   model:
     path: "/home/triage/georgia_dtc_ops_team_chiron_mrsd/Isaac-0.1"
-    device: "cuda"  # cuda, cpu, 或 null 
-    dtype: "bfloat16"  # bfloat16 或 float32
-    
-  # GPS 计算配置
+    device: "cuda"
+    dtype: "auto"
+  
+  # GPS configuration
   gps:
-    earth_radius_lat: 111042.60  # meters/degree
-    # earth_radius_lon # will be calculated dynamically based on latitude
-    
-  # thread pool configuration
+    earth_radius_lat: 111042.60  # meters per degree latitude
+  
+  # Thread pool configuration
   thread_pool:
-    max_workers: 2
+    max_workers: 4
+  
+  # Debug display configuration
+  debug_display:
+    enabled: true  # Publish debug images to /vlm_geolocator/debug/camera_feed
+    display_interval: 1  # Publish every N frames (adjust based on needs: 1=30fps, 10=3fps, 30=1fps)
+    # RECOMMENDED: Use web_video_server for low-CPU visualization
+    #   Install: sudo apt install ros-humble-web-video-server
+    #   Run: ros2 run web_video_server web_video_server
+    #   View: http://localhost:8080/stream?topic=/vlm_geolocator/debug/camera_feed
+    # Note: cv2.imshow() doesn't work due to Qt threading, Foxglove has high CPU overhead
+    window_name: "VLM Geolocator - Video Feed"  # Deprecated, kept for backward compatibility
+  
+  # Video recording configuration
+  video_recording:
+    duration: 5.0  # Recording duration in seconds
+    min_fps: 2.0  # Minimum required frame rate (frames/second)
+
+
+
 
