@@ -152,3 +152,4 @@ http://localhost:8080/snapshot?topic=/vlm_geolocator/debug/camera_feed
 
 
 
+

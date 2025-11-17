@@ -9,6 +9,7 @@ from std_msgs.msg import Int32
 import os
 import json
 import subprocess
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -36,6 +37,12 @@ class VideoMergerNode(Node):
         
         # Track if we're currently processing
         self.is_processing = False
+        
+        # Hyperparameter: use only first segment instead of merging all
+        # Set to True to avoid frame rate inconsistency issues
+        self.declare_parameter('use_first_segment_only', True)
+        self.use_first_segment_only = self.get_parameter('use_first_segment_only').value
+        self.get_logger().info(f'Use first segment only: {self.use_first_segment_only}')
         
     def generate_report_callback(self, msg: Int32):
         """
@@ -129,7 +136,7 @@ class VideoMergerNode(Node):
     
     def merge_videos_ffmpeg(self, segments: List[Dict], output_path: Path) -> bool:
         """
-        Merge videos using ffmpeg
+        Merge videos using ffmpeg with robust encoding
         """
         if not segments:
             self.get_logger().warn('No video segments to merge')
@@ -143,32 +150,71 @@ class VideoMergerNode(Node):
                 f.write(f"file '{seg['video'].absolute()}'\n")
         
         try:
-            # ffmpeg command
-            cmd = [
+            # Strategy 1: Try fast copy first (with timestamp fixing)
+            self.get_logger().info('Attempting fast merge (copy mode)...')
+            cmd_fast = [
                 'ffmpeg',
                 '-f', 'concat',
                 '-safe', '0',
                 '-i', concat_file,
-                '-c', 'copy',  # Copy streams directly without re-encoding (fast)
-                '-y',  # Overwrite output file
+                '-c', 'copy',
+                '-fflags', '+genpts',
+                '-avoid_negative_ts', 'make_zero',
+                '-y',
                 str(output_path)
             ]
             
-            self.get_logger().info(f'Executing merge command: {" ".join(cmd)}')
-            
             result = subprocess.run(
-                cmd,
+                cmd_fast,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=300  # 5 minute timeout
+                timeout=300
             )
             
-            if result.returncode == 0:
-                self.get_logger().info(f'✓ Successfully merged video: {output_path}')
+            # Check if fast merge succeeded without too many errors
+            stderr_output = result.stderr.decode()
+            error_count = stderr_output.count('Error')
+            
+            if result.returncode == 0 and error_count < 5:
+                self.get_logger().info(f'✓ Fast merge successful: {output_path}')
                 return True
             else:
-                self.get_logger().error(f'✗ ffmpeg merge failed: {result.stderr.decode()}')
-                return False
+                # Fast merge failed or had too many errors, try re-encoding
+                self.get_logger().warn(f'Fast merge had issues ({error_count} errors), re-encoding for better quality...')
+                
+                # Strategy 2: Re-encode with H.264 for reliability
+                cmd_reencode = [
+                    'ffmpeg',
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-i', concat_file,
+                    '-c:v', 'libx264',  # Re-encode with H.264
+                    '-preset', 'fast',  # Balance between speed and quality
+                    '-crf', '23',  # Quality level (18-28, lower=better quality)
+                    '-c:a', 'aac',  # Re-encode audio to AAC
+                    '-b:a', '128k',  # Audio bitrate
+                    '-movflags', '+faststart',  # Optimize for streaming
+                    '-fflags', '+genpts',  # Regenerate timestamps
+                    '-avoid_negative_ts', 'make_zero',
+                    '-y',
+                    str(output_path)
+                ]
+                
+                self.get_logger().info(f'Executing re-encode command: {" ".join(cmd_reencode)}')
+                
+                result = subprocess.run(
+                    cmd_reencode,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=600  # 10 minute timeout for re-encoding
+                )
+                
+                if result.returncode == 0:
+                    self.get_logger().info(f'✓ Successfully re-encoded and merged video: {output_path}')
+                    return True
+                else:
+                    self.get_logger().error(f'✗ Re-encoding failed: {result.stderr.decode()}')
+                    return False
                 
         except subprocess.TimeoutExpired:
             self.get_logger().error('ffmpeg merge timed out')
@@ -186,6 +232,7 @@ class VideoMergerNode(Node):
     def merge_casualty_videos(self, casualty_folder: Path) -> bool:
         """
         Merge all videos from a single casualty folder
+        (or use only first segment if use_first_segment_only is True)
         """
         casualty_name = casualty_folder.name
         
@@ -208,10 +255,24 @@ class VideoMergerNode(Node):
         output_filename = f"{casualty_name}_merged_{timestamp_str}.mp4"
         output_path = self.recordings_base / output_filename
         
-        self.get_logger().info(f'Starting merge of {len(segments)} segment(s) for {casualty_name}...')
-        
-        # Execute merge
-        success = self.merge_videos_ffmpeg(segments, output_path)
+        # Option 1: Use only first segment (avoids frame rate issues)
+        if self.use_first_segment_only:
+            self.get_logger().info(f'Using first segment only for {casualty_name} (skip merging)')
+            
+            # Simply copy the first segment
+            first_segment_path = segments[0]['video']
+            
+            try:
+                shutil.copy2(first_segment_path, output_path)
+                self.get_logger().info(f'✓ Copied first segment: {first_segment_path.name} -> {output_filename}')
+                success = True
+            except Exception as e:
+                self.get_logger().error(f'✗ Failed to copy first segment: {e}')
+                success = False
+        else:
+            # Option 2: Merge all segments (original behavior)
+            self.get_logger().info(f'Starting merge of {len(segments)} segment(s) for {casualty_name}...')
+            success = self.merge_videos_ffmpeg(segments, output_path)
         
         if success:
             # Create metadata for merged video
@@ -219,6 +280,7 @@ class VideoMergerNode(Node):
                 'casualty_folder': casualty_name,
                 'total_segments': len(segments),
                 'first_detection_time': earliest_timestamp.isoformat(),  # First detection time
+                'use_first_segment_only': self.use_first_segment_only,
                 'segments': [
                     {
                         'filename': seg['video'].name,

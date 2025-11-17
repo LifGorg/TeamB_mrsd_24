@@ -298,11 +298,17 @@ class VideoRecorder:
                         if len(buffered_frames) < 2:
                             continue
                         
+                        # Use fixed 5 FPS instead of adaptive estimation
+                        # This ensures consistent frame rate across all segments for proper merging
+                        selected_fps = 5.0
+                        
+                        # Log estimated FPS for debugging (but don't use it)
                         elapsed_buffer = buffered_times[-1] - buffered_times[0]
                         if elapsed_buffer > 0:
                             estimated_fps = (len(buffered_frames) - 1) / elapsed_buffer
-                            if estimated_fps > 0:
-                                selected_fps = max(1.0, min(120.0, estimated_fps))
+                            if estimated_fps < 3.0:
+                                print(f"[VideoRecorder] ⚠️  Warning: Low frame rate detected ({estimated_fps:.1f} FPS), but using fixed 5 FPS for consistency")
+                        
                         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                         writer = cv2.VideoWriter(
                             str(output_path),

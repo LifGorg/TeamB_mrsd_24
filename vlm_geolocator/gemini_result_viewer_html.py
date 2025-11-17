@@ -22,7 +22,7 @@ from vlm_geolocator.vision.gemini_video_analyzer import GeminiVideoAnalyzer
 
 
 def extract_frames(video_path, num_frames=6):
-    """从视频中提取帧"""
+    """从视频中提取帧（增强版 - 处理损坏的视频）"""
     cap = cv2.VideoCapture(video_path)
     
     if not cap.isOpened():
@@ -31,6 +31,22 @@ def extract_frames(video_path, num_frames=6):
     
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
+    if total_frames <= 0:
+        print(f"⚠️  无法获取视频帧数，尝试顺序读取...")
+        # Fallback: read frames sequentially
+        frames = []
+        frame_count = 0
+        while len(frames) < num_frames and frame_count < 1000:  # Safety limit
+            ret, frame = cap.read()
+            if not ret:
+                break
+            # Sample every N frames
+            if frame_count % max(1, frame_count // num_frames + 1) == 0:
+                frames.append(frame)
+            frame_count += 1
+        cap.release()
+        return frames
+    
     if total_frames < num_frames:
         num_frames = total_frames
     
@@ -38,13 +54,28 @@ def extract_frames(video_path, num_frames=6):
     frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
     
     frames = []
+    failed_reads = 0
+    
     for idx in frame_indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         ret, frame = cap.read()
-        if ret:
+        
+        if ret and frame is not None:
             frames.append(frame)
+        else:
+            failed_reads += 1
+            # Try reading next frame if this one failed
+            for retry in range(5):
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    frames.append(frame)
+                    break
     
     cap.release()
+    
+    if failed_reads > 0:
+        print(f"⚠️  {failed_reads} 帧读取失败，成功提取 {len(frames)} 帧")
+    
     return frames
 
 
@@ -804,7 +835,7 @@ def process_and_generate_html(recording_dir):
     
     if not results:
         print("⚠️  No analysis results found")
-        print("🔬 Will analyze latest 5 videos...")
+        print("🔬 Will analyze latest 4 videos...")
         
         # Find all video files (including merged casualty videos)
         video_files = []
@@ -815,13 +846,9 @@ def process_and_generate_html(recording_dir):
             print("❌ No video files found")
             sys.exit(1)
         
-        # Sort by modification time and take latest 1
-
-
-
-        
+        # Sort by modification time and take latest 4
         video_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-        latest_videos = video_files[:1]
+        latest_videos = video_files[:4]
         
         print(f"📹 Found {len(video_files)} videos, will analyze latest {len(latest_videos)}")
         
