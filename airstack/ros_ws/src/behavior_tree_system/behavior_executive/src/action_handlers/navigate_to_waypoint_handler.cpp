@@ -135,3 +135,54 @@ void NavigateToWaypointHandler::on_activated(bt::Action* action, const Context& 
     );
 }
 
+std::vector<sensor_msgs::msg::NavSatFix> NavigateToWaypointHandler::compute_waypoint_path(
+    const GPSPoint& start_gps,
+    const GPSPoint& goal_gps,
+    const std::vector<Obstacle>& obstacles,
+    double target_altitude) {
+
+    RCLCPP_INFO(logger_, 
+                "[ComputeWaypointPath] Computing obstacle avoidance path from (%.6f, %.6f) to (%.6f, %.6f).",
+                start_gps.lat, start_gps.lon, goal_gps.lat, goal_gps.lon);
+
+    // The path planner uses meter-based calculations. We need to convert obstacles' GPS to meters.
+    // We use the start_gps as the reference point for this local coordinate frame.
+    std::vector<Obstacle> obstacles_in_meters;
+    for (const auto& obs_gps : obstacles) {
+        // NOTE: The Obstacle struct from path_planning.hpp takes GPS, MeterPoint, and radius.
+        // We calculate the meter point relative to the drone's start position.
+        MeterPoint meter_point = gpsToMeter(start_gps, obs_gps.gps);
+        obstacles_in_meters.emplace_back(obs_gps.gps, meter_point, obs_gps.radius);
+    }
+    
+    // Call the RRT* path planning algorithm
+    RCLCPP_INFO(logger_, "[ComputeWaypointPath] Calling RRT* planner with %zu obstacles.", obstacles_in_meters.size());
+    PathResult path_result = pathPlanningWithBothPaths(start_gps, goal_gps, obstacles_in_meters);
+    
+    // Prefer the simplified path, but fall back to the original if simplification fails
+    std::vector<GPSPoint> path_gps = path_result.simplifiedPath;
+    if (path_gps.empty()) {
+        RCLCPP_WARN(logger_, "[ComputeWaypointPath] Simplified path was empty, falling back to original RRT* path.");
+        path_gps = path_result.originalPath;
+    }
+
+    if (path_gps.empty()) {
+        RCLCPP_ERROR(logger_, "[ComputeWaypointPath] Path planner failed to find a valid path. Returning empty path.");
+        return {}; // Return an empty vector
+    }
+
+    RCLCPP_INFO(logger_, "[ComputeWaypointPath] Path found with %zu waypoints. Converting to NavSatFix.", path_gps.size());
+
+    // Convert the resulting path of GPSPoints to a vector of NavSatFix messages
+    std::vector<sensor_msgs::msg::NavSatFix> waypoints;
+    for (const auto& gps_point : path_gps) {
+        sensor_msgs::msg::NavSatFix waypoint;
+        waypoint.latitude = gps_point.lat;
+        waypoint.longitude = gps_point.lon;
+        waypoint.altitude = target_altitude; // Use the fixed target altitude for all points
+        waypoints.push_back(waypoint);
+    }
+
+    return waypoints;
+}
+

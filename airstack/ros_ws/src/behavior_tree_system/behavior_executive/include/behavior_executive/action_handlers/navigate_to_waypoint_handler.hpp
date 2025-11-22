@@ -2,6 +2,9 @@
 
 #include "action_handler_interface.hpp"
 #include <memory>
+#include <vector>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include "behavior_executive/mission_planning/path_planning.hpp"
 
 // Forward declarations
 class IMavrosAdapter;
@@ -47,6 +50,25 @@ public:
     // 实现 IActionHandler 接口
     void on_activated(bt::Action* action, const Context& ctx) override;
     bool check_safety(const Context& ctx) override;
+
+    /**
+     * @brief Computes a safe path considering obstacles.
+     * 
+     * This function implements the RRT* algorithm to compute a multi-point path
+     * from a start to a goal location, avoiding a given list of obstacles.
+     * 
+     * @param start_gps The current position of the drone.
+     * @param goal_gps The final target position (e.g., casualty location).
+     * @param obstacles A vector of obstacles, each with a GPS location and a radius in meters.
+     * @param target_altitude The desired constant altitude for the entire path.
+     * @return A vector of NavSatFix messages representing the safe path. Returns an empty vector if no path is found.
+     */
+    std::vector<sensor_msgs::msg::NavSatFix> compute_waypoint_path(
+        const GPSPoint& start_gps,
+        const GPSPoint& goal_gps,
+        const std::vector<Obstacle>& obstacles,
+        double target_altitude
+    );
 
 private:
     std::shared_ptr<IMavrosAdapter> mavros_adapter_;
