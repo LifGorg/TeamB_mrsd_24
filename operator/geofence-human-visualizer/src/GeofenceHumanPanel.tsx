@@ -5,7 +5,7 @@ import {
 } from "@foxglove/extension";
 import { ReactElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import L, { LatLngExpression, Map as LeafletMap, Polygon, Marker as LeafletMarker } from "leaflet";
+import L, { LatLngExpression, Map as LeafletMap, Polygon, Marker as LeafletMarker, Circle as LeafletCircle, Polyline as LeafletPolyline } from "leaflet";
 
 // Minimal Leaflet CSS injection
 const injectLeafletStyles = () => {
@@ -50,12 +50,16 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const geofenceMarkersRef = useRef<Map<number, LeafletMarker>>(new Map());
   const missionWaypointMarkersRef = useRef<Map<number, LeafletMarker>>(new Map());  // Mission waypoints (persistent)
   const humanMarkersRef = useRef<Map<string, LeafletMarker>>(new Map());
+  const obstacleMarkersRef = useRef<Map<string, LeafletCircle>>(new Map());
+  const plannedPathRef = useRef<LeafletPolyline | null>(null);
+  const plannedPathMarkersRef = useRef<LeafletMarker[]>([]);
   const selectedWaypointMarkerRef = useRef<LeafletMarker | null>(null);
   const [status, setStatus] = useState<string>("Initializing...");
   const [selectedWaypoint, setSelectedWaypoint] = useState<{lat: number, lon: number} | null>(null);
   const [waypointAltitude, setWaypointAltitude] = useState<number>(6.0); // User-configurable altitude
   const [geofenceMappingAltitude, setGeofenceMappingAltitude] = useState<number>(10.0); // Geofence mapping altitude
   const [surveyAltitude, setSurveyAltitude] = useState<number>(6.0); // Survey altitude
+  const [clickMode, setClickMode] = useState<"waypoint" | "obstacle">("waypoint");
   
   // Global waypoint counter for unique IDs across missions
   const globalWaypointCounterRef = useRef<number>(0);
@@ -65,10 +69,13 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const MISSION_WAYPOINTS_TOPIC = "/dtc_mrsd_/mavros/mission/waypoints";  // Mission waypoints
   const CASUALTY_GEOLOCATED_TOPIC = "/casualty_geolocated";  // Casualty position
   const SELECTED_WAYPOINT_TOPIC = "/selected_waypoint";  // New topic for selected waypoint
+  const CLICKED_OBSTACLE_TOPIC = "/clicked_obstacle"; // New topic for clicked obstacles
   const DRONE_GPS_TOPIC = "/dtc_mrsd_/mavros/global_position/global";  // Drone position
   const DRONE_HEADING_TOPIC = "/dtc_mrsd_/mavros/global_position/compass_hdg";  // Drone heading
   const GEOFENCE_MAPPING_ALTITUDE_TOPIC = "/geofence_mapping_altitude";  // Geofence mapping altitude
   const SURVEY_ALTITUDE_TOPIC = "/survey_altitude";  // Survey altitude
+  const PLANNED_PATH_TOPIC = "/dtc_mrsd_/mavros/planner/path"; // New topic for planned path
+  const GEOFENCE_MAPPING_STATUS_TOPIC = "/geofence_mapping_status"; // New topic for mapping status
 
   // Store drone position and heading
   const dronePositionRef = useRef<{lat: number, lon: number} | null>(null);
@@ -87,6 +94,8 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
       { topic: CASUALTY_GEOLOCATED_TOPIC },
       { topic: DRONE_GPS_TOPIC },
       { topic: DRONE_HEADING_TOPIC },
+      { topic: PLANNED_PATH_TOPIC },
+      { topic: GEOFENCE_MAPPING_STATUS_TOPIC },
     ],
     []
   );
@@ -100,6 +109,7 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
     
     try {
       context.advertise(SELECTED_WAYPOINT_TOPIC, "sensor_msgs/NavSatFix");
+      context.advertise(CLICKED_OBSTACLE_TOPIC, "geometry_msgs/PoseStamped");
       context.advertise(GEOFENCE_MAPPING_ALTITUDE_TOPIC, "std_msgs/Float64");
       context.advertise(SURVEY_ALTITUDE_TOPIC, "std_msgs/Float64");
       advertisedRef.current = true;
@@ -146,6 +156,28 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
       console.error("[GeofenceMap] ✗ Publish failed:", error);
     }
   }, [context, SELECTED_WAYPOINT_TOPIC, waypointAltitude]);
+
+  // Publish clicked obstacle
+  const publishClickedObstacle = useCallback((lat: number, lon: number, radius: number) => {
+    if (!context.publish) return;
+    
+    ensureAdvertised();
+    
+    const msg = {
+      header: { stamp: { sec: 0, nsec: 0 }, frame_id: "map" },
+      pose: {
+        position: { x: lat, y: lon, z: 0 }, // Using x,y for lat,lon
+        orientation: { x: 0, y: 0, z: 0, w: radius } // Encoding radius in w
+      }
+    };
+
+    try {
+      context.publish(CLICKED_OBSTACLE_TOPIC, msg);
+      console.log("[GeofenceMap] ✓ Published Obstacle:", lat, lon, `Radius: ${radius}m`);
+    } catch (error) {
+      console.error("[GeofenceMap] ✗ Obstacle Publish failed:", error);
+    }
+  }, [context, CLICKED_OBSTACLE_TOPIC]);
 
   // Publish geofence mapping altitude
   const publishGeofenceMappingAltitude = useCallback(() => {
@@ -250,30 +282,48 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
     map.on("click", (e) => {
       const { lat, lng } = e.latlng;
       
-      // Remove old selected waypoint marker
-      if (selectedWaypointMarkerRef.current) {
-        map.removeLayer(selectedWaypointMarkerRef.current);
+      if (clickMode === "waypoint") {
+        // Remove old selected waypoint marker
+        if (selectedWaypointMarkerRef.current) {
+          map.removeLayer(selectedWaypointMarkerRef.current);
+        }
+
+        // Create new selected waypoint marker (small blue dot with "W" - ~0.5m diameter at zoom 18)
+        const icon = L.divIcon({
+          className: "waypoint-marker",
+          html: `<div style="background-color: #0000ff; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 9px; box-shadow: 0 1px 4px rgba(0,0,0,0.5);">W</div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        });
+
+        const marker = L.marker([lat, lng], { icon })
+          .addTo(map)
+          .bindPopup(
+            `<b>Selected Waypoint</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lng.toFixed(6)}<br><br><i>Click "Navigate to Waypoint" in Behavior Tree Controller to go here</i>`
+          )
+          .openPopup();
+
+        selectedWaypointMarkerRef.current = marker;
+        setSelectedWaypoint({ lat, lon: lng });
+      } else if (clickMode === "obstacle") {
+        const obstacleRadiusMeters = 1.5;
+        
+        // Draw a circle on the map with a real-world radius
+        const circle = L.circle([lat, lng], {
+            radius: obstacleRadiusMeters, // Radius in meters
+            color: '#ff0000',             // Red outline
+            fillColor: '#ff0000',         // Red fill
+            fillOpacity: 0.3,              // Slightly transparent
+        }).addTo(map);
+        
+        circle.bindPopup(`<b>Obstacle</b><br>Radius: ${obstacleRadiusMeters}m`);
+        
+        const obstacleId = `obstacle-${Date.now()}`;
+        obstacleMarkersRef.current.set(obstacleId, circle);
+        
+        // Publish the obstacle position and radius
+        publishClickedObstacle(lat, lng, obstacleRadiusMeters);
       }
-
-      // Create new selected waypoint marker (small blue dot with "W" - ~0.5m diameter at zoom 18)
-      const icon = L.divIcon({
-        className: "waypoint-marker",
-        html: `<div style="background-color: #0000ff; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 9px; box-shadow: 0 1px 4px rgba(0,0,0,0.5);">W</div>`,
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
-      });
-
-      const marker = L.marker([lat, lng], { icon })
-        .addTo(map)
-        .bindPopup(
-          `<b>Selected Waypoint</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lng.toFixed(6)}<br><br><i>Click "Navigate to Waypoint" in Behavior Tree Controller to go here</i>`
-        )
-        .openPopup();
-
-      selectedWaypointMarkerRef.current = marker;
-      setSelectedWaypoint({ lat, lon: lng });
-
-      // Publish waypoint to ROS topic - we'll call publishSelectedWaypoint via useEffect when selectedWaypoint changes
     });
 
     mapRef.current = map;
@@ -637,6 +687,73 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
             setStatus(`Casualties: ${casualtyCount} total detected`);
           }
         }
+
+        // Handle planned path visualization
+        if (topic === PLANNED_PATH_TOPIC) {
+          const pathMsg = message as any; // Type is nav_msgs/Path
+          
+          // Remove old path visualization
+          if (plannedPathRef.current) {
+            map.removeLayer(plannedPathRef.current);
+          }
+          plannedPathMarkersRef.current.forEach(marker => map.removeLayer(marker));
+          plannedPathMarkersRef.current = [];
+
+          if (pathMsg.poses && Array.isArray(pathMsg.poses) && pathMsg.poses.length > 1) {
+            const latlngs = pathMsg.poses.map((poseStamped: any) => 
+              [poseStamped.pose.position.y, poseStamped.pose.position.x] // Assuming planner uses x for lon, y for lat
+            );
+
+            // Draw the new path line
+            const path = L.polyline(latlngs, {
+              color: '#00BFFF', // Deep sky blue
+              weight: 5,
+              opacity: 0.8,
+            }).addTo(map);
+            plannedPathRef.current = path;
+
+            // Draw markers for each waypoint in the path
+            latlngs.forEach((latlng, index) => {
+                const waypointMarker = L.circleMarker(latlng, {
+                    radius: 4,
+                    color: '#FFFFFF',
+                    weight: 1,
+                    fillColor: '#00BFFF',
+                    fillOpacity: 1,
+                }).addTo(map);
+                waypointMarker.bindPopup(`Path Waypoint #${index + 1}`);
+                plannedPathMarkersRef.current.push(waypointMarker);
+            });
+
+            setStatus(`Visualizing planned path with ${latlngs.length} points.`);
+          }
+        }
+
+        // Handle mapping completion to highlight the last casualty
+        if (topic === GEOFENCE_MAPPING_STATUS_TOPIC) {
+          const statusMsg = message as any; // Type is behavior_tree_msgs/Status
+          if (statusMsg.status === 2) { // Status 2 means mapping is complete
+            console.log("[GeofenceMap] 📍 Mapping complete. Highlighting last casualty.");
+            const lastCasualtyId = Array.from(humanMarkersRef.current.keys())
+              .filter(id => id.startsWith(CASUALTY_GEOLOCATED_TOPIC))
+              .sort((a, b) => parseInt(a.split('-')[1]) - parseInt(b.split('-')[1])) // Sort by timestamp
+              .pop(); // Get the last one
+
+            if (lastCasualtyId && humanMarkersRef.current.has(lastCasualtyId)) {
+              const lastCasualtyMarker = humanMarkersRef.current.get(lastCasualtyId);
+              if (lastCasualtyMarker) {
+                lastCasualtyMarker.setIcon(L.divIcon({
+                  className: "custom-marker",
+                  html: `<div style="background-color: #00FF00; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">C</div>`,
+                  iconSize: [20, 20],
+                  iconAnchor: [10, 10],
+                }));
+                lastCasualtyMarker.setPopupContent(`<b>Last Casualty</b><br>Lat: ${lastCasualtyMarker.getLatLng().lat.toFixed(6)}<br>Lon: ${lastCasualtyMarker.getLatLng().lng.toFixed(6)}`);
+                setStatus(`Mapping complete. Last casualty highlighted.`);
+              }
+            }
+          }
+        }
       } catch (error) {
         console.error(`Error processing message from ${topic}:`, error);
         setStatus(`Error: ${error}`);
@@ -819,6 +936,31 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
           <span style={{ fontSize: "10px", color: "#666" }}>
             → /survey_altitude
           </span>
+        </div>
+        <div style={{ marginTop: "8px", display: "flex", gap: "8px", alignItems: "center" }}>
+          <span style={{ fontSize: "11px", fontWeight: "600" }}>Click Mode:</span>
+          <button
+            onClick={() => setClickMode("waypoint")}
+            style={{
+              padding: "4px 8px",
+              fontSize: "11px",
+              border: clickMode === "waypoint" ? "2px solid #0000ff" : "1px solid #ccc",
+              background: clickMode === "waypoint" ? "#e0e0ff" : "#fff",
+            }}
+          >
+            Waypoint
+          </button>
+          <button
+            onClick={() => setClickMode("obstacle")}
+            style={{
+              padding: "4px 8px",
+              fontSize: "11px",
+              border: clickMode === "obstacle" ? "2px solid #ff0000" : "1px solid #ccc",
+              background: clickMode === "obstacle" ? "#ffe0e0" : "#fff",
+            }}
+          >
+            Obstacle
+          </button>
         </div>
         <div style={{ fontSize: "10px", color: "#999", marginTop: "4px" }}>
           Click map to select waypoint • Topics: {GEOFENCE_TOPIC}, {SELECTED_WAYPOINT_TOPIC}
