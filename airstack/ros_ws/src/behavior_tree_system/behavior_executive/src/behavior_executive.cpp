@@ -25,6 +25,7 @@
 #include <behavior_executive/action_handlers/navigate_to_waypoint_handler.hpp>
 #include <behavior_executive/action_handlers/search_handler.hpp>
 #include <behavior_executive/action_handlers/survey_handler.hpp>
+#include <behavior_executive/action_handlers/go_to_target_with_avoidance_handler.hpp>
 
 // Now include behavior_executive and mavros_adapter
 #include <behavior_executive/behavior_executive.hpp>
@@ -70,6 +71,10 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
         this->get_logger()
     );
     survey_handler_ = std::make_unique<SurveyHandler>(
+        mavros_adapter_,
+        this->get_logger()
+    );
+    go_to_target_with_avoidance_handler_ = std::make_unique<GoToTargetWithAvoidanceHandler>(
         mavros_adapter_,
         this->get_logger()
     );
@@ -124,6 +129,10 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
         new bt::Condition("Navigate to Waypoint Commanded", this);
     navigate_to_waypoint_action = new bt::Action("Navigate to Waypoint", this);
 
+    go_to_target_with_avoidance_commanded_condition = 
+        new bt::Condition("Go to Target (Obstacle Avoidance) Commanded", this);
+    go_to_target_with_avoidance_action = new bt::Action("Go to Target (Obstacle Avoidance)", this);
+
     conditions.push_back(auto_takeoff_commanded_condition);
     conditions.push_back(armed_condition);
     conditions.push_back(survey_commanded_condition);
@@ -135,6 +144,7 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
     conditions.push_back(auto_land_commanded_condition);
     conditions.push_back(search_commanded_condition);
     conditions.push_back(navigate_to_waypoint_commanded_condition);
+    conditions.push_back(go_to_target_with_avoidance_commanded_condition);
     // actions
 
     actions.push_back(arm_action);
@@ -147,6 +157,7 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
     actions.push_back(search_action);
     actions.push_back(survey_action);
     actions.push_back(navigate_to_waypoint_action);
+    actions.push_back(go_to_target_with_avoidance_action);
 
     // Subscribers Callback
     behavior_tree_commands_sub =
@@ -489,6 +500,40 @@ void BehaviorExecutive::timer_callback() {
         }
     }
 
+    // 10. Go to Target with Obstacle Avoidance
+    if (go_to_target_with_avoidance_action->is_active()) {
+        go_to_target_with_avoidance_action->set_running();
+        if (go_to_target_with_avoidance_action->active_has_changed()) {
+            log_action_transition(go_to_target_with_avoidance_action, "ACTIVATED");
+
+            // Set the target position from the latest casualty detection
+            if (precise_casualty_detected) {
+                go_to_target_with_avoidance_handler_->set_target_position(precise_casualty_gps_position);
+            } else {
+                go_to_target_with_avoidance_handler_->set_target_position(casualty_gps_position);
+            }
+
+            // Build context, using CURRENT altitude for the flight
+            IActionHandler::Context ctx{
+                current_latitude,
+                current_longitude,
+                current_relative_altitude,
+                current_mode
+            };
+
+            // Safety checks
+            if (!go_to_target_with_avoidance_handler_->check_safety(ctx)) {
+                go_to_target_with_avoidance_action->set_failure();
+                log_action_transition(go_to_target_with_avoidance_action, "FAILURE", 
+                                    "Safety check failed");
+                return;
+            }
+
+            // Delegate to handler
+            go_to_target_with_avoidance_handler_->on_activated(go_to_target_with_avoidance_action, ctx);
+        }
+    }
+
     // publish conditions and actions
     for (bt::Condition* condition : conditions) condition->publish();
     for (bt::Action* action : actions) action->publish();
@@ -708,6 +753,8 @@ std::map<std::string, bool> BehaviorExecutive::get_related_conditions(bt::Action
         related_conditions["Survey Commanded"] = survey_commanded_condition->get();
     } else if (action_label == "Navigate to Waypoint") {
         related_conditions["Navigate to Waypoint Commanded"] = navigate_to_waypoint_commanded_condition->get();
+    } else if (action_label == "Go to Target (Obstacle Avoidance)") {
+        related_conditions["Go to Target (Obstacle Avoidance) Commanded"] = go_to_target_with_avoidance_commanded_condition->get();
     }
     
     return related_conditions;
