@@ -1,0 +1,34 @@
+# ROS2 topic configuration
+ros2:
+  # input topics (MAVROS)
+  input_topics:
+    gps: "/dtc_mrsd_/mavros/global_position/global"
+    compass: "/dtc_mrsd_/mavros/global_position/compass_hdg"
+    altitude: "/dtc_mrsd_/mavros/global_position/rel_alt"
+    gimbal: "/gimbal_attitude"
+    
+  # output topics
+  output_topics:
+    drone_gps: "/dtc_mrsd_/mavros/global_position/global"
+    # casualties_gps: "/manual_targets/geolocated"  # HumanDataMsg - not used
+    casualty_geolocated: "/casualty_geolocated"  # NavSatFix - primary output
+  
+  # services
+  services:
+    trigger_capture: "trigger_capture"
+    
+  # QoS configuration
+  qos:
+    mavros:
+      reliability: "best_effort"
+      durability: "volatile"
+      history: "keep_last"
+      depth: 10
+    
+    # QoS for casualty_geolocated topic (compatible with domain_bridge)
+    casualty_geolocated:
+      reliability: "reliable"
+      durability: "transient_local"
+      history: "keep_last"
+      depth: 10
+

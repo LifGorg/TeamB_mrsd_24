@@ -1,0 +1,51 @@
+# GPS Configuration
+gps:
+  reference_points: #set 3, spaced blair park FVD
+    # - latitude: 40.4255174
+    #   longitude: -79.9546193
+
+    # - latitude: 40.4255711
+    #   longitude: -79.9544159
+
+
+    # - latitude: 40.4254333
+    #   longitude: -79.9544313
+    - latitude: 40.4255975
+      longitude: -79.9545746
+
+
+
+    - latitude: 40.4255403
+      longitude: -79.9543864
+
+    - latitude: 40.4253924
+      longitude: -79.9544433
+
+  # Predefined obstacle location
+  obstacle_point:
+    latitude: 40.4254657
+    longitude: -79.9545605
+    radius: 1.5  # meters
+
+  # reference_points: #set 2, closed central blair park
+  #   - latitude: 
+  #     longitude: 
+
+  #   - latitude: 
+  #     longitude: 
+
+  #   - latitude: 
+  #     longitude: 
+
+  # GPS calculation parameters
+  earth_radius_lat: 111042.60  # meters per degree latitude
+  
+
+
+
+
+
+
+
+
+

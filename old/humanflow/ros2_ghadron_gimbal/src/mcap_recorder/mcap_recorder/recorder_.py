@@ -28,6 +28,7 @@ class RecorderNode(Node):
         # Declare parameters with defaults and descriptions
         self.declare_parameter('output_base_dir', "/home/dtc/humanflow/ros2_ghadron_gimbal/adi_recordings",
                                ParameterDescriptor(description='Base directory for saving recordings.'))
+<<<<<<< HEAD
         self.declare_parameter('rtsp_url', 'rtsp://10.3.1.124:8554/ghadron',
                                ParameterDescriptor(description='RTSP stream URL.'))
         self.declare_parameter('topics_to_record', [
@@ -36,6 +37,16 @@ class RecorderNode(Node):
             '/robot_1/mavros/global_position/global',
             '/robot_1/mavros/imu/data',
             '/robot_1/mavros/global_position/compass_hdg',
+=======
+        self.declare_parameter('rtsp_url', 'rtsp://10.3.1.124:8556/ghadron',
+                               ParameterDescriptor(description='RTSP stream URL.'))
+        self.declare_parameter('topics_to_record', [
+            '/camera/image_raw',
+            '/dtc_mrsd/mavros/global_position/rel_alt',
+            '/dtc_mrsd/mavros/global_position/global',
+            '/dtc_mrsd/mavros/imu/data',
+            '/dtc_mrsd/mavros/global_position/compass_hdg',
+>>>>>>> FVD-final
             '/gimbal_attitude'
             ], ParameterDescriptor(description='List of topics to record.'))
         self.declare_parameter('monitor_interval_sec', 5.0,
@@ -109,25 +120,41 @@ class RecorderNode(Node):
         # Create subscriptions with matching BEST_EFFORT QoS
         self.rel_alt_subscription = self.create_subscription(
             Float64,
+<<<<<<< HEAD
             '/robot_1/mavros/global_position/rel_alt',
+=======
+            '/dtc_mrsd/mavros/global_position/rel_alt',
+>>>>>>> FVD-final
             self.rel_alt_callback,
             qos_profile=mavros_qos_best_effort) # Use best_effort QoS
             
         self.gps_subscription = self.create_subscription(
             NavSatFix,
+<<<<<<< HEAD
             '/robot_1/mavros/global_position/global',
+=======
+            '/dtc_mrsd/mavros/global_position/global',
+>>>>>>> FVD-final
             self.gps_callback,
             qos_profile=mavros_qos_best_effort) # Use best_effort QoS
             
         self.imu_subscription = self.create_subscription(
             Imu,
+<<<<<<< HEAD
             '/robot_1/mavros/imu/data',
+=======
+            '/dtc_mrsd/mavros/imu/data',
+>>>>>>> FVD-final
             self.imu_callback,
             qos_profile=mavros_qos_best_effort) # Use best_effort QoS
             
         self.compass_hdg_subscription = self.create_subscription(
             Float64,
+<<<<<<< HEAD
             '/robot_1/mavros/global_position/compass_hdg',
+=======
+            '/dtc_mrsd/mavros/global_position/compass_hdg',
+>>>>>>> FVD-final
             self.compass_hdg_callback,
             qos_profile=mavros_qos_best_effort) # Use best_effort QoS
         

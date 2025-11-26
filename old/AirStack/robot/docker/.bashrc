@@ -173,7 +173,7 @@ sws # source the ROS2 workspace by default
 container_name=$(curl -s --unix-socket /var/run/docker.sock http://localhost/containers/$HOSTNAME/json | jq -r .Name)
 CONTAINER_PREFIX="airstack-"
 
-export ROBOT_NAME=robot_1
+export ROBOT_NAME=dtc_mrsd
 export ROS_DOMAIN_ID=70
 
 export RCUTILS_COLORIZED_OUTPUT=1  # get colored output from ROS2 tools

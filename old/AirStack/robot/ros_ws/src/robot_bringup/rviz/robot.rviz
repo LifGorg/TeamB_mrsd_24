@@ -251,7 +251,7 @@ Visualization Manager:
                 Filter size: 10
                 History Policy: Keep Last
                 Reliability Policy: Reliable
-                Value: /robot_1/droan/frustum
+                Value: /dtc_mrsd/droan/frustum
               Value: false
             - Class: rviz_default_plugins/MarkerArray
               Enabled: false
@@ -263,7 +263,7 @@ Visualization Manager:
                 Durability Policy: Volatile
                 History Policy: Keep Last
                 Reliability Policy: Reliable
-                Value: /robot_1/droan/disparity_map_debug
+                Value: /dtc_mrsd/droan/disparity_map_debug
               Value: false
             - Class: rviz_default_plugins/MarkerArray
               Enabled: false
@@ -275,7 +275,7 @@ Visualization Manager:
                 Durability Policy: Volatile
                 History Policy: Keep Last
                 Reliability Policy: Reliable
-                Value: /robot_1/droan/disparity_graph
+                Value: /dtc_mrsd/droan/disparity_graph
               Value: false
             - Class: rviz_default_plugins/MarkerArray
               Enabled: true
@@ -420,7 +420,7 @@ Visualization Manager:
             Filter size: 10
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /robot_1/global_plan
+            Value: /dtc_mrsd/global_plan
           Value: true
       Enabled: true
       Name: Global

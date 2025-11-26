@@ -1,10 +1,43 @@
-<!-- ROBOT -->
+<!-- ROBOT - Complete System Launch with all components -->
 <launch>
   <push_ros_namespace namespace="$(env ROBOT_NAMESPACE)" />
-  <set_parameter name="use_sim_time" value="true" />
-  <include file="/root/ros_ws/src/autonomy/0_interface/mavros_interface/launch/px4.launch" />
-  <node pkg="behavior_governor" exec="behavior_governor_node" output="screen" respawn="true" respawn_delay="2" />
+  <set_parameter name="use_sim_time" value="false" />
+  
+  <!-- MAVROS Interface for flight controller communication -->
+  <include file="$(find-pkg-share mavros_interface)/launch/px4.launch">
+    <arg name="fcu_url" value="serial:///dev/ttyACM0:57600"/>
+    <arg name="gcs_url" value="udp://@10.3.1.10:14550"/>
+    <arg name="tgt_system" value="1"/>
+    <arg name="tgt_component" value="1"/>
+    <arg name="log_output" value="screen"/>
+    <arg name="fcu_protocol" value="v2.0"/>
+    <arg name="respawn_mavros" value="true"/>
+    <arg name="namespace" value="mavros"/>
+  </include>
+
+
+  <!-- Behavior Tree System -->
+  <!-- Behavior Tree Engine - parses and executes behavior tree -->
+  <node pkg="behavior_tree" exec="behavior_tree_implementation" output="screen" respawn="true" respawn_delay="3">
+    <param name="config" value="$(find-pkg-share behavior_tree)/config/drone.tree"/>
+  </node>
+  
+  <!-- Behavior Executive - implements mission behaviors and MAVROS integration -->
+  <node pkg="behavior_executive" exec="behavior_executive" output="screen" respawn="true" respawn_delay="3">
+    <!-- Node subscribes to behavior tree commands and interfaces with MAVROS -->
+  </node>
+
+
+
+  <!-- ROS Domain Bridge: Domain 70 to Domain 100 -->
   <node pkg="domain_bridge" exec="domain_bridge"
-    args="/root/ros_ws/src/robot_bringup/params/domain_bridge.yaml"
-    output="screen" respawn="true" respawn_delay="1" />
+    name="domain_bridge_70_to_100"
+    args="/root/ros_ws/src/robot_bringup/params/domain_bridge_70_to_100.yaml"
+    output="log" 
+    respawn="true" 
+    respawn_delay="3">
+    <!-- logging level -->
+    <param name="log_level" value="INFO"/>
+  </node>
+
 </launch>

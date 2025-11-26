@@ -1,0 +1,94 @@
+# System Configuration
+system:
+  # Sensor timeouts and warnings (in seconds)
+  sensor_timeout: 10.0
+  sensor_stale_warning: 3.0
+  warning_interval: 5.0
+  startup_grace_period: 5.0
+  
+  # Logging configuration
+  log_dir: "/home/triage/georgia_dtc_ops_team_chiron_mrsd/vlm_geolocator/inference_logs"
+  
+  # Model configuration
+  model:
+    path: "/home/triage/georgia_dtc_ops_team_chiron_mrsd/Isaac-0.1"
+    device: "cuda"
+    dtype: "auto"
+  
+  # GPS configuration
+  gps:
+    earth_radius_lat: 111042.60  # meters per degree latitude
+  
+  # Thread pool configuration
+  thread_pool:
+    max_workers: 4
+  
+  # Debug display configuration
+  debug_display:
+    enabled: true  # Publish debug images to /vlm_geolocator/debug/camera_feed
+    display_interval: 1  # Publish every N frames (adjust based on needs: 1=30fps, 10=3fps, 30=1fps)
+    # RECOMMENDED: Use web_video_server for low-CPU visualization
+    #   Install: sudo apt install ros-humble-web-video-server
+    #   Run: ros2 run web_video_server web_video_server
+    #   View: http://localhost:8080/stream?topic=/vlm_geolocator/debug/camera_feed
+    # Note: cv2.imshow() doesn't work due to Qt threading, Foxglove has high CPU overhead
+    window_name: "VLM Geolocator - Video Feed"  # Deprecated, kept for backward compatibility
+  
+  # Video recording configuration
+  video_recording:
+    duration: 5.0  # Recording duration in seconds
+    min_fps: 2.0  # Minimum required frame rate (frames/second)
+
+# GStreamer video stream configuration
+gstreamer:
+  # Pipeline mode: "auto" or "custom"
+  # - "auto": Generate pipeline from parameters below
+  # - "custom": Use custom_pipeline string directly (ignores other parameters)
+  mode: "auto"
+  
+  # ==== AUTO MODE PARAMETERS ====
+  # Used when mode = "auto"
+  
+  # Basic stream configuration
+  udp_port: 5000
+  encoding: "H264"  # "H264" or "H265"
+  
+  # Multicast configuration
+  multicast_enabled: false
+  multicast_address: "239.255.0.1"
+  multicast_interface: "enx00e04c6802a8"
+  
+  # Network/jitter side parameters
+  udpsrc_buffer_size: 4194304  # Buffer size for udpsrc (bytes)
+
+  ## high latency, very stable:
+        # rtpjitterbuffer jitterbuffer_latency 600
+        # queue_max-size-time=300000000 (300ms)
+        # appsink_max-buffers=5
+
+  ## balanced mid-latency, decent stability:
+        # rtpjitterbuffer jitterbuffer_latency 300
+        # queue_max-size-time=0
+        # appsink_max-buffers=3
+
+  ## Aggressive low-latency:  
+        # rtpjitterbuffer jitterbuffer_latency 100
+        # queue_max_size_buffers=1 _max_size_time=0
+        # appsink _max_buffers=1
+
+
+  jitterbuffer_latency: 500  # Latency for rtpjitterbuffer (milliseconds)
+  jitterbuffer_drop_on_latency: true  # Drop packets that arrive too late (strict low-latency vs allow late frames)
+  # Pipeline latency / backpressure parameters
+  queue_max_size_time: 0 # Max time in nanoseconds (300ms = 300000000ns)
+  queue_leaky: "downstream"  # Leak type: "no", "upstream", or "downstream"
+  
+  # App-side buffering parameters
+  appsink_max_buffers: 5  # Maximum buffers to queue in appsink
+  appsink_drop: true  # Drop old buffers when queue is full
+  
+  # ==== CUSTOM MODE PARAMETERS ====
+  # Used when mode = "custom"
+  # Provide complete GStreamer pipeline string (must end with appsink)
+  # Example format: "udpsrc ... ! rtpjitterbuffer ... ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR ! appsink name=appsink0 emit-signals=true max-buffers=1 drop=true"
+  custom_pipeline: ""

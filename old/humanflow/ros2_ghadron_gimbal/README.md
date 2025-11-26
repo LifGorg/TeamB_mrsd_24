@@ -41,8 +41,8 @@ source install/setup.bash
 
 ros2 run gimbal_angle_control gimbal_angle_control_node
 ros2 run gimbal_status gimbal_status_node
-ros2 run image_publisher image_publisher_node rtsp://10.3.1.124:8554/ghadron
-ros2 run stream_publisher stream_node --ros-args -p rtsp_url:="rtsp://10.3.1.124:8554/ghadron" -p width:=1280 -p height:=720
+ros2 run image_publisher image_publisher_node rtsp://10.3.1.124:8556/ghadron
+ros2 run stream_publisher stream_node --ros-args -p rtsp_url:="rtsp://10.3.1.124:8556/ghadron" -p width:=1280 -p height:=720
 ros2 run yolo_detection yolo_detection_node
 ros2 run human_tracking tracking_node
 ros2 run image_viewer image_viewer_node
@@ -124,8 +124,8 @@ ros2 topic info /gimbal_angles
 ### Check the streaming video
 image_publisher is a node that publishes the streaming video to the topic /image_raw, image_viewer is a node that subscribes to the topic /image_raw and displays the video. We don't use them for now because the streaming video contains ir and eo overlapped and not being able to display separately.
 ```bash
-ros2 run image_publisher image_publisher_node rtsp://10.3.1.124:8554/ghadron
-ffmpeg -y -i rtsp://10.3.1.124:8554/ghadron 1 do.jpg
+ros2 run image_publisher image_publisher_node rtsp://10.3.1.124:8556/ghadron
+ffmpeg -y -i rtsp://10.3.1.124:8556/ghadron 1 do.jpg
 ros2 topic echo /image_raw
 ```
 ## Warnings
