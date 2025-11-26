@@ -170,7 +170,6 @@ mil19/
 obstacle_avoidance/
 src/
 bbox_methods.py
-FVD.sh
 gimbal_pitch_test.py
 GIMBAL_TELEOP_README.md
 package-lock.json
