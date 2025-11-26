@@ -152,3 +152,7 @@ airstack/ros_ws/mcap_recordings
 mavproxy/
 airstack/librealsense/
 *.whl
+
+# Recording and inference logs
+recording/
+inference_logs/
