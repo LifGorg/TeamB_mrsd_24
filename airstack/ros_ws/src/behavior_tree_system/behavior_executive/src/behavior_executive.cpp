@@ -183,6 +183,10 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
         "/selected_waypoint", 10,
         std::bind(&BehaviorExecutive::selected_waypoint_callback, this, std::placeholders::_1));
 
+    clicked_obstacle_sub = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+        "/clicked_obstacle", 10,
+        std::bind(&BehaviorExecutive::clicked_obstacle_callback, this, std::placeholders::_1));
+
     // Service Clients (保留未使用的客户端，未来重构)
     auto service_callback_group =
         this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -235,6 +239,16 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
     selected_waypoint_lat_ = 0.0;
     selected_waypoint_lon_ = 0.0;
     selected_waypoint_alt_ = 10.0;  // 默认高度
+    
+    // 初始化固定的 geofence 点 (顺时针顺序)
+    geofence_points = {
+        {40.4257412, -79.9544866},
+        {40.42540679392462, -79.95410199973055},
+        {40.4251645, -79.9544894},
+        {40.4255336, -79.9548757}
+    };
+    geofence_handler_->set_geofence_points(geofence_points);
+    RCLCPP_INFO(this->get_logger(), "Initialized with fixed geofence polygon (%zu vertices)", geofence_points.size());
 
     // // Added for the new drone_pose_callback
     // current_heading_radians = 0.0;  // Heading in radians in ENU frame
@@ -258,6 +272,16 @@ BehaviorExecutive::BehaviorExecutive(std::shared_ptr<IMavrosAdapter> mavros_adap
 
 // ACTIONS CALLBACK
 void BehaviorExecutive::timer_callback() {
+    // Convert clicked obstacles to obstacles for path planning
+    std::vector<Obstacle> current_obstacles;
+    
+    // Add clicked obstacles from GCS
+    for (const auto& pt : clicked_obstacles) {
+        current_obstacles.emplace_back(GPSPoint{pt.first, pt.second}, MeterPoint{0, 0}, 3.0);
+    }
+    
+    // Note: geofence_points are now used as polygon constraint boundary, not as obstacles
+
     // 1. Auto Takeoff
     // DEBUGGING NOTE:
     // PX4 (v1.15.4) Auto Takeoff Behavior
@@ -377,7 +401,9 @@ void BehaviorExecutive::timer_callback() {
                 current_latitude,
                 current_longitude,
                 target_ascend_altitude,
-                current_mode
+                current_mode,
+                {}, // obstacles not needed for geofence mapping
+                {}  // polygon not needed for geofence mapping
             };
             
             // 安全检查
@@ -411,7 +437,9 @@ void BehaviorExecutive::timer_callback() {
                 current_latitude,
                 current_longitude,
                 target_ascend_altitude,
-                current_mode
+                current_mode,
+                {}, // obstacles not needed for search
+                {}  // polygon not needed for search
             };
 
             // 安全检查
@@ -444,7 +472,9 @@ void BehaviorExecutive::timer_callback() {
                 current_latitude,
                 current_longitude,
                 target_ascend_altitude,
-                current_mode
+                current_mode,
+                {}, // obstacles not needed for survey
+                {}  // polygon not needed for survey
             };
 
             // 安全检查
@@ -468,12 +498,20 @@ void BehaviorExecutive::timer_callback() {
         if (navigate_to_waypoint_action->active_has_changed()) {
             log_action_transition(navigate_to_waypoint_action, "ACTIVATED");
 
+            // Convert geofence_points to polygon_vertices
+            std::vector<GPSPoint> polygon_vertices;
+            for (const auto& point : geofence_points) {
+                polygon_vertices.emplace_back(point.first, point.second);
+            }
+            
             // 构建上下文
             IActionHandler::Context ctx{
                 current_latitude,
                 current_longitude,
                 selected_waypoint_alt_,  // 使用选中航点的高度
-                current_mode
+                current_mode,
+                current_obstacles,
+                polygon_vertices
             };
 
             // 安全检查
@@ -595,20 +633,21 @@ void BehaviorExecutive::push_waypoints(bt::Action* action,
 }
 
 void BehaviorExecutive::geofence_callback(const mavros_msgs::msg::WaypointList::SharedPtr msg) {
-    // Only load geofence points if we haven't loaded them yet
-    if (geofence_points.empty()) {
+    // If waypoints are provided in the message, update geofence points
+    // This allows overriding the default fixed geofence
+    if (!msg->waypoints.empty()) {
+        geofence_points.clear();
         for (const auto& wp : msg->waypoints) {
             std::pair<double, double> point = {wp.x_lat, wp.y_long};
             geofence_points.push_back(point);
         }
-
-        if (!geofence_points.empty()) {
-            RCLCPP_INFO(this->get_logger(), "Received %zu geofence points", geofence_points.size());
-            
-            // 将围栏点传递给处理器
-            geofence_handler_->set_geofence_points(geofence_points);
-        }
+        RCLCPP_INFO(this->get_logger(), "Updated geofence with %zu points from message (overriding default)", 
+                    geofence_points.size());
+        
+        // 将围栏点传递给处理器
+        geofence_handler_->set_geofence_points(geofence_points);
     }
+    // If message is empty, keep using the fixed geofence initialized in constructor
 }
 
 void BehaviorExecutive::target_gps_list_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
@@ -679,6 +718,17 @@ void BehaviorExecutive::selected_waypoint_callback(
     RCLCPP_INFO(this->get_logger(),
                 "[Navigate to Waypoint] Received waypoint: lat=%.6f, lon=%.6f, alt=%.1f",
                 selected_waypoint_lat_, selected_waypoint_lon_, selected_waypoint_alt_);
+}
+
+void BehaviorExecutive::clicked_obstacle_callback(
+    const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
+    
+    // Store the clicked obstacle position
+    clicked_obstacles.push_back({msg->latitude, msg->longitude});
+    
+    RCLCPP_INFO(this->get_logger(),
+                "[Clicked Obstacle] Received obstacle at: lat=%.6f, lon=%.6f (Total: %zu obstacles)",
+                msg->latitude, msg->longitude, clicked_obstacles.size());
 }
 
 std::map<std::string, bool> BehaviorExecutive::get_related_conditions(bt::Action* action) {

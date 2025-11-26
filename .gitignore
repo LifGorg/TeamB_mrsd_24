@@ -156,3 +156,6 @@ airstack/librealsense/
 # Recording and inference logs
 recording/
 inference_logs/
+
+# UAV to UGV code (not needed)
+uav_to_ugv/

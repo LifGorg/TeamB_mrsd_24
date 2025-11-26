@@ -2,6 +2,8 @@
 
 #include <string>
 #include <memory>
+#include <vector>
+#include "behavior_executive/mission_planning/path_planning.hpp"
 
 // Forward declarations
 namespace bt {
@@ -29,6 +31,13 @@ public:
         double target_altitude;      // 目标飞行高度（米）
         std::string current_mode;    // 当前飞行模式
         
+        // Obstacles for path planning
+        std::vector<Obstacle> obstacles;
+        
+        // Optional polygon constraint (geofence) for path planning
+        // Vertices should be in clockwise order
+        std::vector<GPSPoint> polygon_vertices;
+
         // 可以根据需要添加更多上下文信息
         // double current_relative_altitude;
         // bool is_armed;

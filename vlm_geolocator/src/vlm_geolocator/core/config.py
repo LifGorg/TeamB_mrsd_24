@@ -141,11 +141,6 @@ class SystemConfig:
     model_path: str
     model_device: str
     model_dtype: str
-    gps_earth_radius_lat: float
-    gps_snap_to_reference: bool
-    gps_snap_noise_meters: float  # Legacy, for backward compatibility
-    gps_gaussian_sigma_meters: float
-    gps_uniform_range_meters: float
     thread_pool_max_workers: int
     debug_display_enabled: bool
     debug_display_interval: int
@@ -269,23 +264,6 @@ class ConfigManager:
         debug_display = system_data.get('debug_display', {})
         video_recording = system_data.get('video_recording', {})
         
-        # Load GPS configuration for snap noise and snap_to_reference
-        gps_data = self._load_yaml("gps_config.yaml")['gps']
-        snap_to_reference = gps_data.get('snap_to_reference', True)  # Default True if not specified
-        
-        # Load noise configuration (supports both new and legacy formats)
-        snap_noise_config = gps_data.get('snap_noise', {})
-        if isinstance(snap_noise_config, dict):
-            # New format: separate Gaussian and Uniform parameters
-            gaussian_sigma = snap_noise_config.get('gaussian_sigma_meters', 0.3)
-            uniform_range = snap_noise_config.get('uniform_range_meters', 0.5)
-            snap_noise_legacy = snap_noise_config.get('snap_noise_meters', 0.0)
-        else:
-            # Legacy format: single snap_noise_meters value
-            snap_noise_legacy = gps_data.get('snap_noise_meters', 0.8)
-            gaussian_sigma = 0.3  # Default
-            uniform_range = snap_noise_legacy if snap_noise_legacy > 0 else 0.5
-        
         self.system = SystemConfig(
             sensor_timeout=system_data['sensor_timeout'],
             sensor_stale_warning=system_data['sensor_stale_warning'],
@@ -295,11 +273,6 @@ class ConfigManager:
             model_path=system_data['model']['path'],
             model_device=system_data['model']['device'],
             model_dtype=system_data['model']['dtype'],
-            gps_earth_radius_lat=system_data['gps']['earth_radius_lat'],
-            gps_snap_to_reference=snap_to_reference,
-            gps_snap_noise_meters=snap_noise_legacy,
-            gps_gaussian_sigma_meters=gaussian_sigma,
-            gps_uniform_range_meters=uniform_range,
             thread_pool_max_workers=system_data['thread_pool']['max_workers'],
             debug_display_enabled=debug_display.get('enabled', False),
             debug_display_interval=debug_display.get('display_interval', 30),

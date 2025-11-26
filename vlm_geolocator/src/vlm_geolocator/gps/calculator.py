@@ -49,33 +49,19 @@ class GPSCalculator:
         self, 
         intrinsic_matrix: np.ndarray, 
         earth_radius_lat: float = 111111.0, 
-        snap_to_reference: bool = True,
         reference_points: Optional[List[Tuple[float, float]]] = None,
         gps_config_path: Optional[str] = None,
-        snap_noise_meters: float = 1.0,
-        gaussian_sigma_meters: float = 0.3,
-        uniform_range_meters: float = 0.5
     ):
         """
         Args:
             intrinsic_matrix: Camera intrinsic matrix
             earth_radius_lat: Earth radius in latitude direction (meters/degree)
-            snap_to_reference: Whether to snap estimates to nearest reference point
             reference_points: List of (lat, lon) tuples. If None, loads from config.
             gps_config_path: Path to gps_config.yaml. If None, uses default path.
-            snap_noise_meters: Legacy parameter (deprecated, use gaussian/uniform params instead)
-            gaussian_sigma_meters: Standard deviation for Gaussian noise component (meters)
-            uniform_range_meters: Range for uniform noise component (±meters)
         """
         self.intrinsic = intrinsic_matrix
         self.intrinsic_inv = np.linalg.inv(intrinsic_matrix)
         self.earth_radius_lat = earth_radius_lat
-        self.snap_to_reference = snap_to_reference
-        
-        # Noise parameters
-        self.snap_noise_meters = snap_noise_meters  # Legacy, for backward compatibility
-        self.gaussian_sigma_meters = gaussian_sigma_meters
-        self.uniform_range_meters = uniform_range_meters
         
         # Load reference points from config if not provided
         if reference_points is None:
@@ -92,16 +78,6 @@ class GPSCalculator:
         d_east = (lon2 - lon1) * meters_per_deg_lon
         return float(np.hypot(d_east, d_north))
 
-    def _snap_to_reference(self, lat: float, lon: float) -> Tuple[int, float, float, float]:
-        if not self.reference_points:
-            # No reference points available, return original coordinates
-            return -1, lat, lon, 0.0
-        
-        distances = [self._distance_m(lat, lon, ref_lat, ref_lon) for (ref_lat, ref_lon) in self.reference_points]
-        idx = int(np.argmin(distances))
-        snapped_lat, snapped_lon = self.reference_points[idx]
-        return idx, snapped_lat, snapped_lon, float(distances[idx])
-    
     def estimate_target_gps(
         self,
         pixel_x: float,
@@ -203,65 +179,6 @@ class GPSCalculator:
             "offset_east": east_offset,
             "lateral_distance": float(np.hypot(east_offset, north_offset)),
         }
-
-        if self.snap_to_reference:
-            idx, snapped_lat, snapped_lon, snap_dist_m = self._snap_to_reference(estimated_lat, estimated_lon)
-            
-            # Add combined Gaussian + Uniform noise to snapped coordinates
-            # Gaussian component: normally distributed around 0, simulates measurement error
-            gaussian_noise_north = np.random.normal(0, self.gaussian_sigma_meters)
-            gaussian_noise_east = np.random.normal(0, self.gaussian_sigma_meters)
-            
-            # Uniform component: uniformly distributed in range, simulates systematic bias
-            uniform_noise_north = random.uniform(-self.uniform_range_meters, self.uniform_range_meters)
-            uniform_noise_east = random.uniform(-self.uniform_range_meters, self.uniform_range_meters)
-            
-            # Combined noise
-            noise_north = gaussian_noise_north + uniform_noise_north
-            noise_east = gaussian_noise_east + uniform_noise_east
-            
-            # Convert noise to GPS coordinates
-            noise_lat_deg = noise_north / self.earth_radius_lat
-            noise_lon_deg = noise_east / meters_per_deg_lon
-            
-            # Apply noise to snapped coordinates
-            snapped_lat += noise_lat_deg
-            snapped_lon += noise_lon_deg
-            
-            d_north = (snapped_lat - lat) * self.earth_radius_lat
-            d_east = (snapped_lon - lon) * meters_per_deg_lon
-            result.update({
-                # Store original estimation before snapping
-                "original_latitude": estimated_lat,
-                "original_longitude": estimated_lon,
-                "original_offset_north": north_offset,
-                "original_offset_east": east_offset,
-                "original_lateral_distance": float(np.hypot(east_offset, north_offset)),
-                # Update with snapped values
-                "estimated_latitude": snapped_lat,
-                "estimated_longitude": snapped_lon,
-                "offset_north": d_north,
-                "offset_east": d_east,
-                "lateral_distance": float(np.hypot(d_east, d_north)),
-                # Snapping metadata
-                "snapped_to_reference": True,
-                "snapped_index": idx + 1,  # 1-based index
-                "snap_distance_m": snap_dist_m,
-                # Total noise (Gaussian + Uniform)
-                "noise_north_m": noise_north,
-                "noise_east_m": noise_east,
-                "noise_magnitude_m": float(np.hypot(noise_east, noise_north)),
-                # Gaussian noise component
-                "gaussian_noise_north_m": gaussian_noise_north,
-                "gaussian_noise_east_m": gaussian_noise_east,
-                "gaussian_noise_magnitude_m": float(np.hypot(gaussian_noise_east, gaussian_noise_north)),
-                # Uniform noise component
-                "uniform_noise_north_m": uniform_noise_north,
-                "uniform_noise_east_m": uniform_noise_east,
-                "uniform_noise_magnitude_m": float(np.hypot(uniform_noise_east, uniform_noise_north)),
-            })
-        else:
-            result["snapped_to_reference"] = False
 
         return result
     
