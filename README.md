@@ -2,7 +2,12 @@
 
 ## Overview
 
-The system has been consolidated into a single (unified) ROS 2 Humble container that launches the flight autonomy stack (MAVROS + behavior governor + domain bridge) and provides the gimbal control nodes in the same workspace. Legacy multi-container (robot / GCS / humanflow gimbal) instructions have been deprecated and moved under `old/` for reference.
+The system has been consolidated into a single (unified) ROS 2 Humble container that launches the flight autonomy stack (MAVROS + behavior governor + domain bridge) and provides the gimbal control nodes in the same workspace. The repository includes:
+
+- **AirStack**: Unified ROS2 workspace with flight autonomy and gimbal control
+- **Operator**: Foxglove Studio extensions for mission planning and visualization
+- **VLM Geolocator**: Vision Language Model based casualty detection and GPS geolocation
+- **Scripts**: Utility scripts for system management and FVD operations
 
 ## Key Components (Current Runtime)
 
@@ -17,14 +22,25 @@ Available to run manually inside the container:
 Legacy / reference only:
 - ROS1 teleoperation node (`operator/ros_ws/src/gimbal_teleop`) – not part of the current default runtime.
 
-## Repository Structure (Active vs Legacy)
+## Repository Structure
 
 - `airstack/` – Active unified ROS2 workspace (`ros_ws/`)
   - `docker/Dockerfile.unified` – Build recipe for the unified image
   - `docker/run_unified.sh` – Helper script to start the unified runtime
   - `ros_ws/` – ROS2 workspace (packages: autonomy, behavior_governor, gimbal_control, robot_bringup, etc.)
-- `operator/` – (Optional) legacy ROS1 teleop example
-- `old/` – Historical multi-container stacks (no longer maintained)
+- `operator/` – Foxglove Studio extensions for mission planning and control
+  - `behavior-tree-controller/` – Behavior tree mission controller
+  - `geofence-human-visualizer/` – Geofence and human detection visualization
+  - `gimbal-foxglove-controller/` – Gimbal control interface
+  - `path-solver-extension/` – Path planning and waypoint solver
+- `scripts/` – Utility scripts for system management
+  - `FVD.sh` – Main launch script for FVD operations (tmux session manager)
+  - `new_tmux.sh` – Tmux session setup utilities
+  - `setup_test_environment.sh` – Test environment configuration
+- `vlm_geolocator/` – Vision Language Model (VLM) based geolocation system
+  - Real-time casualty detection and GPS coordinate estimation
+  - Gemini video analyzer integration
+  - ROS2 interface for publishing geolocated casualty data
 
 ## Prerequisites
 
@@ -150,14 +166,27 @@ Which (see `robot_bringup/launch/robot.launch.xml`) includes:
 
 `gimbal_control` nodes are intentionally NOT auto-started—run only what you need.
 
-## Legacy Components
+## Quick Launch with FVD.sh
 
-The previous separation into:
-- Robot (L4T) container
-- Ground Control Station container
-- Separate humanflow gimbal container
+For a complete FVD (Field Validation and Deployment) setup, use the main launch script:
 
-is retained only under `old/` for archival purposes. Do not mix those instructions with the unified flow.
+```bash
+./scripts/FVD.sh
+```
+
+This script will:
+1. Clean up existing processes (foxglove_bridge, QGroundControl, GStreamer, VLM nodes)
+2. Create a tmux session with multiple panes:
+   - **Pane 0**: Foxglove Bridge (ROS_DOMAIN_ID=100)
+   - **Pane 1**: QGroundControl
+   - **Pane 2**: RTSP Stream (remote camera capture)
+   - **Pane 3**: Local Receiver (web_video_server)
+   - **Pane 4**: VLM Geolocator (vision inference node)
+3. Create additional windows for:
+   - Video Merger Node
+   - HTML Viewer (Gemini results)
+
+The script uses relative paths and will work from any location within the repository.
 
 ## Gimbal Notes
 
@@ -174,6 +203,17 @@ is retained only under `old/` for archival purposes. Do not mix those instructio
 | Nodes not found | Rebuild: remove `build install log` then `colcon build` |
 | Gimbal topic absent | Ensure you started the desired `gimbal_control` node |
 
+## VLM Geolocator
+
+The `vlm_geolocator/` directory contains the Vision Language Model based geolocation system:
+
+- **Main Node**: `src/vision_inference_node_refactored.py` – Processes video streams and publishes geolocated casualty data
+- **GPS Calculator**: `src/vlm_geolocator/gps/calculator.py` – Estimates GPS coordinates from camera data
+- **Configuration**: YAML files in `config/` for camera, GPS, ROS, and system settings
+- **Domain**: Publishes to ROS_DOMAIN_ID=100 on topic `/casualty_geolocated`
+
+For detailed documentation, see the README files within `vlm_geolocator/`.
+
 ## Next Steps (Planned Enhancements)
 
 - Add launch file to optionally auto-start gimbal nodes
@@ -181,4 +221,4 @@ is retained only under `old/` for archival purposes. Do not mix those instructio
 - Provide ROS1→ROS2 bridge or pure ROS2 teleop replacement
 
 ---
-For historical documentation, consult files under `old/`. This README reflects the CURRENT supported unified workflow.
+This README reflects the CURRENT supported unified workflow.

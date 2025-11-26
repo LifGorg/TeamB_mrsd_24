@@ -34,10 +34,6 @@ pkill -f "vision_inference_node_refactored.py" 2>/dev/null
 echo "  - Stopping video_merger_node..."
 pkill -f "video_merger_node.py" 2>/dev/null
 
-# Kill email notifier
-echo "  - Stopping casualty_email_notifier..."
-pkill -f "casualty_email_notifier.py" 2>/dev/null
-
 echo "Process cleanup complete."
 sleep 2
 
@@ -180,28 +176,16 @@ tmux select-pane -t 4 -T "VLM (D100→/casualty_geolocated)"
 tmux set -g pane-border-status top
 tmux set -g pane-border-format "#{pane_index}: #{pane_title}"
 
-# Create a NEW WINDOW (not pane) for Video Merger Node and Email Notifier
+# Create a NEW WINDOW (not pane) for Video Merger Node
 tmux new-window -t $SESSION_NAME -n "VideoMerger"
 
-# Split this window to create 2 panes
-tmux split-window -v
-
-# Top pane: Video Merger Node
-tmux select-pane -t 0
+# Single pane: Video Merger Node
 tmux send-keys "cd $PROJECT_ROOT/vlm_geolocator" Enter
 sleep 1
 tmux send-keys "export ROS_DOMAIN_ID=100 && source /opt/ros/humble/setup.bash && source $PROJECT_ROOT/airstack/ros_ws/install/setup.bash && python3 src/video_merger_node.py" Enter
 
-# Bottom pane: Casualty Email Notifier
-tmux select-pane -t 1
-sleep 2
-tmux send-keys "cd $PROJECT_ROOT/vlm_geolocator" Enter
-sleep 1
-# tmux send-keys "export ROS_DOMAIN_ID=100 && source /opt/ros/humble/setup.bash && source $PROJECT_ROOT/airstack/ros_ws/install/setup.bash && python3 src/casualty_email_notifier.py" Enter
-
-# Add pane titles for Window 1 (VideoMerger)
+# Add pane title for Window 1 (VideoMerger)
 tmux select-pane -t 0 -T "Video Merger"
-tmux select-pane -t 1 -T "Email Notifier"
 
 # Create a NEW WINDOW for HTML Viewer
 tmux new-window -t $SESSION_NAME -n "HTMLViewer"
@@ -230,9 +214,8 @@ echo "  - Pane 2: RTSP Stream (Remote Camera)"
 echo "  - Pane 3: Local Receiver"
 echo "  - Pane 4: VLM Geolocator"
 echo ""
-echo "📺 WINDOW 1 (VideoMerger) - 2 Panes:"
+echo "📺 WINDOW 1 (VideoMerger) - 1 Pane:"
 echo "  - Pane 0: Video Merger Node"
-echo "  - Pane 1: Casualty Email Notifier"
 echo ""
 echo "📺 WINDOW 2 (HTMLViewer) - 1 Pane:"
 echo "  - Pane 0: HTML Viewer (Watch Mode)"
