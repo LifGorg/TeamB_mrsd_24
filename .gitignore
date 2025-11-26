@@ -159,3 +159,26 @@ inference_logs/
 
 # UAV to UGV code (not needed)
 uav_to_ugv/
+
+# Old code (not needed)
+old/
+
+# Unused directories and files (only keeping airstack, operator, scripts, vlm_geolocator)
+2025-05-07_06-04-01/
+Isaac-0.1/
+mil19/
+obstacle_avoidance/
+src/
+bbox_methods.py
+FVD.sh
+gimbal_pitch_test.py
+GIMBAL_TELEOP_README.md
+package-lock.json
+setup_ubuntu.sh
+test_streamer.py
+test_topic.py
+test_vlm_gpu.py
+test_vlm.py
+todo.txt
+VLM_TEST_README.md
+.cursor/
