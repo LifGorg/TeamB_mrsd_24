@@ -1,0 +1,27 @@
+{
+  "name": "path-solver-extension",
+  "displayName": "Path Solver",
+  "description": "Calculates minimum cost path visiting all detected geolocations",
+  "publisher": "unknown",
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "foxglove-extension build",
+    "local-install": "foxglove-extension install",
+    "package": "foxglove-extension package"
+  },
+  "dependencies": {
+    "leaflet": "1.9.4"
+  },
+  "devDependencies": {
+    "@foxglove/extension": "2.36.0",
+    "@types/leaflet": "^1.9.20",
+    "@types/react": "18.3.24",
+    "@types/react-dom": "18.3.7",
+    "create-foxglove-extension": "1.0.6",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "5.9.2"
+  }
+}

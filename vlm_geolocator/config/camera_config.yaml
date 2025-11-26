@@ -1,0 +1,81 @@
+# camera configuration
+camera:
+  name: "RealSense D435"
+  # resolution:
+  #   width: 1280
+  #   height: 720
+  
+  # # camera intrinsics matrix
+  # intrinsics:
+  #   fx: 920.407043457031
+  #   fy: 920.293395996094
+  #   cx: 638.451110839844
+  #   cy: 373.086090087891
+
+
+  ################ 1920 1080 ################
+  resolution:
+    width: 1920
+    height: 1080
+
+  intrinsics:
+    fx: 1380.61059570312
+    fy: 1380.44006347656
+    cx: 957.676696777344
+    cy: 559.629150390625
+
+  ################ 1280 720 ################
+  # resolution:
+  #   width: 1280
+  #   height: 720
+
+  # intrinsics:
+  #   fx: 920.407043457031
+  #   fy: 920.293395996094
+  #   cx: 638.451110839844
+  #   cy: 373.086090087891
+
+  ################ 640 480 ################
+  # 640 480
+  # resolution:
+  #   width: 640
+  #   height: 480
+
+  # intrinsics:
+  #   fx: 613.604675292969
+  #   fy: 613.528930664062
+  #   cx: 318.967407226562
+  #   cy: 248.724060058594
+
+
+
+  # 424 240
+  # resolution:
+  #   width: 424
+  #   height: 240
+
+  # intrinsics:
+  #   fx: 306.802307128906
+  #   fy: 306.764465332031
+  #   cx: 211.483703613281
+  #   cy: 124.362030029297
+
+
+  ## EO camera intrinsics
+  # intrinsics:
+  #   fx: 932.82977
+  #   fy: 926.87051
+  #   cx: 612.40039
+  #   cy: 356.25877
+
+  #   fx: 1115.9726
+  #   fy: 1115.9726
+  #   cx: 319.5
+  #   cy: 255.5
+
+  # Gimbal/Camera attitude (in degrees)
+  # Used when gimbal sensor is not available (fixed camera configuration)
+  gimbal_attitude:
+    roll: 0.0      # degrees (no roll)
+    pitch: -45.0   # degrees (pointing downward 45 degrees)
+    yaw: 0.0       # degrees (no yaw)

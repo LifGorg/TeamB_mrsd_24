@@ -19,4 +19,4 @@ groups:
     - Geofence Mapping:
         condition_name: Geofence Mapping Commanded
 robots: # these should match a robot's namespace
- - robot_1
+ - dtc_mrsd

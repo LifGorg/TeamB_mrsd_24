@@ -2,7 +2,11 @@
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
+<<<<<<< HEAD
+  set(CMAKE_INSTALL_PREFIX "/root/ros_ws/install")
+=======
   set(CMAKE_INSTALL_PREFIX "/root/ros_ws/install/PayloadSDK")
+>>>>>>> origin/FVD
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 

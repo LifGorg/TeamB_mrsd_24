@@ -116,7 +116,7 @@ BehaviorExecutive::BehaviorExecutive() : Node("behavior_executive") {
         std::bind(&BehaviorExecutive::set_target_altitude_callback, this, std::placeholders::_1));
 
     geofence_sub = this->create_subscription<mavros_msgs::msg::WaypointList>(
-        "/robot_1/mavros/geofence/fences", rclcpp::QoS(10).durability_volatile().transient_local(),
+        "/dtc_mrsd/mavros/geofence/fences", rclcpp::QoS(10).durability_volatile().transient_local(),
         std::bind(&BehaviorExecutive::geofence_callback, this, std::placeholders::_1));
     target_gps_list_sub = this->create_subscription<sensor_msgs::msg::NavSatFix>(
         "/target_gps_list", 10,
@@ -142,7 +142,7 @@ BehaviorExecutive::BehaviorExecutive() : Node("behavior_executive") {
     waypoint_push_client =
         this->create_client<mavros_msgs::srv::WaypointPush>("mavros/mission/push");
     waypoint_clear_client =
-        this->create_client<mavros_msgs::srv::WaypointClear>("/robot_1/mavros/mission/clear");
+        this->create_client<mavros_msgs::srv::WaypointClear>("/dtc_mrsd/mavros/mission/clear");
 
     // ==============
     // Control Timer

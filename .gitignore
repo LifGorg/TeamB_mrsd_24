@@ -150,3 +150,12 @@ airstack/ros_ws/mcap_recordings
 
 # Submodule ignores
 mavproxy/
+airstack/librealsense/
+*.whl
+
+# Recording and inference logs
+recording/
+inference_logs/
+
+# UAV to UGV code (not needed)
+uav_to_ugv/

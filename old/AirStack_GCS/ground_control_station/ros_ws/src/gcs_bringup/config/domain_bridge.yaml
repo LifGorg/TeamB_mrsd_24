@@ -1,6 +1,6 @@
 name: my_bridge
 topics:
-  /robot_1/behavior/behavior_tree_commands:
+  /dtc_mrsd/behavior/behavior_tree_commands:
     type: behavior_tree_msgs/msg/BehaviorTreeCommands
     from_domain: 103
     to_domain: 70
@@ -12,7 +12,7 @@ topics:
   #   type: behavior_tree_msgs/msg/BehaviorTreeCommands
   #   from_domain: 0
   #   to_domain: 3
-  # /robot_1/fixed_trajectory_generator/fixed_trajectory_command:
+  # /dtc_mrsd/fixed_trajectory_generator/fixed_trajectory_command:
   #   type: airstack_msgs/msg/FixedTrajectory
   #   from_domain: 0
   #   to_domain: 1

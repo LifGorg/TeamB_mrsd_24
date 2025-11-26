@@ -1,0 +1,46 @@
+# Email Notification Configuration
+# For Casualty Email Notifier Node
+
+smtp:
+  # SMTP server settings
+  server: "smtp.gmail.com"
+  port: 587
+  use_tls: true
+  
+  # SMTP credentials
+  # For Gmail: Use "App Password" instead of regular password
+  # How to create: https://support.google.com/accounts/answer/185833
+  username: "darpamrsd@gmail.com"
+  password: "ffid zstg skma szlk"
+
+sender:
+  # Email sender information
+  email: "darpamrsd@gmail.com"
+  name: "Chiron Casualty Detection System"
+
+# Email recipients (list)
+recipients:
+  - "yiwu2@andrew.cmu.edu"
+  # - "yufanliu@andrew.cmu.edu"
+  # - "yuejung@andrew.cmu.edu"
+  # - "jets@andrew.cmu.edu"
+  # - "jpen@andrew.cmu.edu"
+  - "darpamrsd@gmail.com"
+
+# Email template configuration
+email_template:
+  subject: "🚨 CASUALTY DETECTED - {timestamp}"
+  priority: "high"  # Options: "high", "normal", "low"
+
+# Optional: Rate limiting
+# rate_limiting:
+#   enabled: true
+#   min_interval_seconds: 5  # Minimum 5 seconds between emails
+
+# Optional: SMS integration (future)
+# sms:
+#   enabled: false
+#   provider: "twilio"
+#   recipients:
+#     - "+1234567890"
+

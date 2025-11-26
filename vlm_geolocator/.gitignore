@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Logs
+*.log
+inference_logs/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Legacy backup
+legacy_backup/
+
+# Cleanup script
+cleanup_obsolete_files.sh
+

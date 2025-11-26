@@ -51,7 +51,7 @@ def generate_launch_description():
         #     executable='stream_node',
         #     name='stream_node',
         #     parameters=[{
-        #         'rtsp_url': 'rtsp://10.3.1.124:8554/ghadron',
+        #         'rtsp_url': 'rtsp://10.3.1.124:8556/ghadron',
         #         'width': 640,
         #         'height': 360
         #     }],
@@ -108,9 +108,9 @@ def generate_launch_description():
         #          f"--storage mcap " +
         #          f"--max-bag-duration 60 " +
         #          f"/image_raw " + 
-        #          f"/robot_1/mavros/imu/data " +
+        #          f"/dtc_mrsd/mavros/imu/data " +
         #          f"/gimbal_attitude " +
-        #          f"/robot_1/mavros/global_position/global"],
+        #          f"/dtc_mrsd/mavros/global_position/global"],
         #     output='screen'
         # ),
 

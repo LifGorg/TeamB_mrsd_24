@@ -68,7 +68,7 @@ Visualization Manager:
             Filter size: 10
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /robot_1/vdb_mapping/vdb_map_visualization
+            Value: /dtc_mrsd/vdb_mapping/vdb_map_visualization
           Value: true
         - Angle Tolerance: 0.10000000149011612
           Class: rviz_default_plugins/Odometry
@@ -107,7 +107,7 @@ Visualization Manager:
             Filter size: 10
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /robot_1/odometry_conversion/odometry
+            Value: /dtc_mrsd/odometry_conversion/odometry
           Value: true
         - Class: rviz_default_plugins/Image
           Enabled: true
@@ -121,7 +121,7 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /robot_1/sensors/front_stereo/left/image_rect
+            Value: /dtc_mrsd/sensors/front_stereo/left/image_rect
           Value: true
       Enabled: true
       Name: robot 1

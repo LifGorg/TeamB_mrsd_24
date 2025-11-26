@@ -8,7 +8,11 @@ import statistics
 
 #class to handle all the rtsp retrieval functions and stuff
 class Streaming:
+<<<<<<< HEAD
     rtsp_url = 'rtsp://10.3.1.124:8554/ghadron'
+=======
+    rtsp_url = 'rtsp://10.3.1.124:8556/ghadron'
+>>>>>>> FVD-final
     WIDTH = 640
     HEIGHT = 512
     retry_max = 10
