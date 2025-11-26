@@ -45,16 +45,33 @@ class GStreamerConfig:
     """GStreamer Configuration"""
     mode: str  # "auto" or "custom"
     
-    # Auto mode parameters
+    # Auto mode parameters (required fields)
     udp_port: int
-    buffer_size: int
-    latency: int
     encoding: str
-    max_buffers: int
-    drop: bool
+    
+    # Network/jitter side parameters (required fields)
+    udpsrc_buffer_size: int  # Buffer size for udpsrc (bytes)
+    jitterbuffer_latency: int  # Latency for rtpjitterbuffer (milliseconds)
+    jitterbuffer_drop_on_latency: bool  # Drop packets that arrive too late
+    
+    # Pipeline latency / backpressure parameters (required fields)
+    queue_max_size_time: int  # Max time in nanoseconds
+    queue_leaky: str  # Leak type: "no", "upstream", or "downstream"
+    
+    # App-side buffering parameters (required fields)
+    appsink_max_buffers: int  # Maximum buffers to queue in appsink
+    appsink_drop: bool  # Drop old buffers when queue is full
+    
+    # Optional parameters (with defaults)
     multicast_enabled: bool = False
     multicast_address: str = ""
     multicast_interface: str = ""
+    
+    # Legacy parameters (deprecated, kept for backward compatibility)
+    buffer_size: int = 0
+    latency: int = 0
+    max_buffers: int = 0
+    drop: bool = True
     
     # Custom mode parameter
     custom_pipeline: str = ""
@@ -79,16 +96,28 @@ class GStreamerConfig:
         if self.mode != "auto":
             raise ValueError(f"Invalid GStreamer mode: '{self.mode}'. Must be 'auto' or 'custom'.")
         
+        # Decoder based on encoding
         decoder = 'rtph265depay ! h265parse ! avdec_h265' if self.encoding == 'H265' else 'rtph264depay ! h264parse ! avdec_h264'
         
         # Build udpsrc with multicast support if enabled
         if self.multicast_enabled:
-            udpsrc = f"udpsrc address={self.multicast_address} port={self.udp_port} multicast-iface={self.multicast_interface} buffer-size={self.buffer_size} auto-multicast=true"
+            udpsrc = f"udpsrc address={self.multicast_address} port={self.udp_port} multicast-iface={self.multicast_interface} buffer-size={self.udpsrc_buffer_size} auto-multicast=true"
         else:
-            udpsrc = f"udpsrc port={self.udp_port} buffer-size={self.buffer_size}"
+            udpsrc = f"udpsrc port={self.udp_port} buffer-size={self.udpsrc_buffer_size}"
+        
+        # Build rtpjitterbuffer with configurable parameters
+        drop_on_latency_str = "true" if self.jitterbuffer_drop_on_latency else "false"
+        jitterbuffer = f"rtpjitterbuffer latency={self.jitterbuffer_latency} drop-on-latency={drop_on_latency_str}"
+        
+        # Build queue with configurable parameters
+        queue = f"queue max-size-time={self.queue_max_size_time} leaky={self.queue_leaky}"
+        
+        # Build appsink with configurable parameters
+        appsink_drop_str = "true" if self.appsink_drop else "false"
+        appsink = f"appsink name=appsink0 emit-signals=true max-buffers={self.appsink_max_buffers} drop={appsink_drop_str}"
         
         # Single-line pipeline (no newlines)
-        pipeline = f"{udpsrc} ! application/x-rtp,media=video,clock-rate=90000,encoding-name={self.encoding},payload=96 ! rtpjitterbuffer latency={self.latency} ! {decoder} ! videoconvert ! video/x-raw,format=BGR ! appsink name=appsink0 emit-signals=true max-buffers={self.max_buffers} drop={str(self.drop).lower()}"
+        pipeline = f"{udpsrc} ! application/x-rtp,media=video,clock-rate=90000,encoding-name={self.encoding},payload=96 ! {jitterbuffer} ! {decoder} ! {queue} ! videoconvert ! video/x-raw,format=BGR ! {appsink}"
         return pipeline
 
 
@@ -113,7 +142,10 @@ class SystemConfig:
     model_device: str
     model_dtype: str
     gps_earth_radius_lat: float
-    gps_snap_noise_meters: float
+    gps_snap_to_reference: bool
+    gps_snap_noise_meters: float  # Legacy, for backward compatibility
+    gps_gaussian_sigma_meters: float
+    gps_uniform_range_meters: float
     thread_pool_max_workers: int
     debug_display_enabled: bool
     debug_display_interval: int
@@ -181,7 +213,7 @@ class ConfigManager:
         )
         
         # Load GStreamer configuration
-        gst_data = self._load_yaml("camera_config.yaml")['gstreamer']
+        gst_data = self._load_yaml("system_config.yaml")['gstreamer']
         mode = gst_data.get('mode', 'auto')
         
         # Validate mode
@@ -191,17 +223,35 @@ class ConfigManager:
                 "Must be 'auto' or 'custom'."
             )
         
+        # Support both new and legacy parameter names
+        # New parameters take precedence over legacy ones
+        udpsrc_buffer_size = gst_data.get('udpsrc_buffer_size', gst_data.get('buffer_size', 4194304))
+        jitterbuffer_latency = gst_data.get('jitterbuffer_latency', gst_data.get('latency', 600))
+        appsink_max_buffers = gst_data.get('appsink_max_buffers', gst_data.get('max_buffers', 10))
+        appsink_drop = gst_data.get('appsink_drop', gst_data.get('drop', True))
+        
         self.gstreamer = GStreamerConfig(
             mode=mode,
             udp_port=gst_data.get('udp_port', 5000),
-            buffer_size=gst_data.get('buffer_size', 4194304),
-            latency=gst_data.get('latency', 300),
             encoding=gst_data.get('encoding', 'H264'),
-            max_buffers=gst_data.get('max_buffers', 2),
-            drop=gst_data.get('drop', True),
             multicast_enabled=gst_data.get('multicast_enabled', False),
             multicast_address=gst_data.get('multicast_address', ''),
             multicast_interface=gst_data.get('multicast_interface', ''),
+            # Network/jitter side parameters
+            udpsrc_buffer_size=udpsrc_buffer_size,
+            jitterbuffer_latency=jitterbuffer_latency,
+            jitterbuffer_drop_on_latency=gst_data.get('jitterbuffer_drop_on_latency', True),
+            # Pipeline latency / backpressure parameters
+            queue_max_size_time=gst_data.get('queue_max_size_time', 300000000),
+            queue_leaky=gst_data.get('queue_leaky', 'downstream'),
+            # App-side buffering parameters
+            appsink_max_buffers=appsink_max_buffers,
+            appsink_drop=appsink_drop,
+            # Legacy parameters (for backward compatibility)
+            buffer_size=gst_data.get('buffer_size', 0),
+            latency=gst_data.get('latency', 0),
+            max_buffers=gst_data.get('max_buffers', 0),
+            drop=gst_data.get('drop', True),
             custom_pipeline=gst_data.get('custom_pipeline', '')
         )
         
@@ -219,9 +269,22 @@ class ConfigManager:
         debug_display = system_data.get('debug_display', {})
         video_recording = system_data.get('video_recording', {})
         
-        # Load GPS configuration for snap noise
+        # Load GPS configuration for snap noise and snap_to_reference
         gps_data = self._load_yaml("gps_config.yaml")['gps']
-        snap_noise_meters = gps_data.get('snap_noise_meters', 0.8)  # Default 0.8m if not specified
+        snap_to_reference = gps_data.get('snap_to_reference', True)  # Default True if not specified
+        
+        # Load noise configuration (supports both new and legacy formats)
+        snap_noise_config = gps_data.get('snap_noise', {})
+        if isinstance(snap_noise_config, dict):
+            # New format: separate Gaussian and Uniform parameters
+            gaussian_sigma = snap_noise_config.get('gaussian_sigma_meters', 0.3)
+            uniform_range = snap_noise_config.get('uniform_range_meters', 0.5)
+            snap_noise_legacy = snap_noise_config.get('snap_noise_meters', 0.0)
+        else:
+            # Legacy format: single snap_noise_meters value
+            snap_noise_legacy = gps_data.get('snap_noise_meters', 0.8)
+            gaussian_sigma = 0.3  # Default
+            uniform_range = snap_noise_legacy if snap_noise_legacy > 0 else 0.5
         
         self.system = SystemConfig(
             sensor_timeout=system_data['sensor_timeout'],
@@ -233,7 +296,10 @@ class ConfigManager:
             model_device=system_data['model']['device'],
             model_dtype=system_data['model']['dtype'],
             gps_earth_radius_lat=system_data['gps']['earth_radius_lat'],
-            gps_snap_noise_meters=snap_noise_meters,
+            gps_snap_to_reference=snap_to_reference,
+            gps_snap_noise_meters=snap_noise_legacy,
+            gps_gaussian_sigma_meters=gaussian_sigma,
+            gps_uniform_range_meters=uniform_range,
             thread_pool_max_workers=system_data['thread_pool']['max_workers'],
             debug_display_enabled=debug_display.get('enabled', False),
             debug_display_interval=debug_display.get('display_interval', 30),

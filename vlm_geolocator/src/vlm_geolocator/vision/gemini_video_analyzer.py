@@ -57,7 +57,7 @@ class GeminiVideoAnalyzer:
     # Detailed medical assessment prompt
     MEDICAL_ASSESSMENT_PROMPT = """
 You are an experienced emergency medical response expert analyzing aerial footage from a drone.
-The video may be shaky, but please do your best to analyze the personnel situation.
+The video may be shaky, but please do your best to analyze the personnel situation. If see any redish cues, be conservative we dont want false negative.
 
 Please carefully analyze all persons in the video and conduct the following assessment for each person:
 

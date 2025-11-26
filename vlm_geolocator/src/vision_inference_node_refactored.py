@@ -81,7 +81,10 @@ class VisionInferenceNode(Node):
         self.gps_calculator = GPSCalculator(
             intrinsic_matrix=self.config.camera.intrinsic_matrix,
             earth_radius_lat=self.config.system.gps_earth_radius_lat,
-            snap_noise_meters=self.config.system.gps_snap_noise_meters
+            snap_to_reference=self.config.system.gps_snap_to_reference,
+            snap_noise_meters=self.config.system.gps_snap_noise_meters,
+            gaussian_sigma_meters=self.config.system.gps_gaussian_sigma_meters,
+            uniform_range_meters=self.config.system.gps_uniform_range_meters
         )
         
         # Initialize video recorder (before video receiver to avoid AttributeError)
@@ -603,32 +606,55 @@ def main(args=None):
     """Main function"""
     # Initialize ROS2 (domain controlled by ROS_DOMAIN_ID env var)
     context = rclpy.Context()
-    rclpy.init(args=args, context=context)
-    
-    # Optional: get config directory from command line args
-    config_dir = None
-    if args and '--config-dir' in args:
-        idx = args.index('--config-dir')
-        if idx + 1 < len(args):
-            config_dir = args[idx + 1]
-    
-    node = VisionInferenceNode(config_dir, context=context)
-    
-    # Print domain info
-    import os
-    domain_id = os.environ.get('ROS_DOMAIN_ID', '0')
-    node.get_logger().info('='*60)
-    node.get_logger().info(f'🌐 Running on ROS2 Domain {domain_id}')
-    node.get_logger().info('='*60)
+    context_initialized = False
+    node = None
     
     try:
+        rclpy.init(args=args, context=context)
+        context_initialized = True
+        
+        # Optional: get config directory from command line args
+        config_dir = None
+        if args and '--config-dir' in args:
+            idx = args.index('--config-dir')
+            if idx + 1 < len(args):
+                config_dir = args[idx + 1]
+        
+        node = VisionInferenceNode(config_dir, context=context)
+        
+        # Print domain info
+        import os
+        domain_id = os.environ.get('ROS_DOMAIN_ID', '0')
+        node.get_logger().info('='*60)
+        node.get_logger().info(f'🌐 Running on ROS2 Domain {domain_id}')
+        node.get_logger().info('='*60)
+        
         rclpy.spin(node, executor=rclpy.executors.SingleThreadedExecutor(context=context))
     except KeyboardInterrupt:
-        pass
+        print("\n⚠️  收到键盘中断信号，正在关闭...")
+    except Exception as e:
+        print(f"\n❌ 错误: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
-        node.destroy_node()
-        context.shutdown()
-        rclpy.shutdown()
+        # 安全关闭：只有在资源被成功初始化后才关闭
+        if node is not None:
+            try:
+                node.destroy_node()
+            except Exception as e:
+                print(f"关闭节点时出错: {e}")
+        
+        if context_initialized:
+            try:
+                if context.ok():
+                    context.shutdown()
+            except Exception as e:
+                print(f"关闭context时出错: {e}")
+            
+            try:
+                rclpy.shutdown()
+            except Exception as e:
+                print(f"关闭rclpy时出错: {e}")
 
 
 if __name__ == '__main__':

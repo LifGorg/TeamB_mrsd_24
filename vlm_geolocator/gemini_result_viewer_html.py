@@ -486,6 +486,88 @@ def generate_html(results):
             line-height: 1.4;
         }
         
+        /* GPS Comparison Styles */
+        .gps-comparison {
+            background: #1a1a1a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 15px;
+            border-left: 4px solid #44ff44;
+        }
+        
+        .gps-comparison h4 {
+            color: #44ff44;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .gps-input-group {
+            margin-bottom: 15px;
+        }
+        
+        .gps-input-group label {
+            display: block;
+            color: #888;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        
+        .gps-input-group input {
+            width: 100%;
+            padding: 10px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 5px;
+            color: #ffffff;
+            font-size: 1em;
+        }
+        
+        .gps-input-group input:focus {
+            outline: none;
+            border-color: #44ff44;
+        }
+        
+        .gps-button {
+            background: #44ff44;
+            color: #000000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1em;
+            margin-right: 10px;
+        }
+        
+        .gps-button:hover {
+            background: #33dd33;
+        }
+        
+        .distance-result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #2a2a2a;
+            border-radius: 5px;
+            border-left: 4px solid #ffaa00;
+            display: none;
+        }
+        
+        .distance-result.show {
+            display: block;
+        }
+        
+        .distance-value {
+            font-size: 1.5em;
+            color: #ffaa00;
+            font-weight: bold;
+        }
+        
+        .distance-label {
+            color: #888;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        
         @media (max-width: 1200px) {
             .content {
                 grid-template-columns: 1fr;
@@ -664,8 +746,8 @@ def generate_html(results):
                         
                         <!-- GPS Location -->
                         <div class="info-card gps">
-                            <div class="info-card-title">GPS Coordinates</div>
-                            <div class="info-card-value">{gps_coords}</div>
+                            <div class="info-card-title">Estimated GPS Coordinates</div>
+                            <div class="info-card-value" id="estimated-gps-{idx}">{gps_coords}</div>
                         </div>
                         
                         <!-- Trauma Condition -->
@@ -696,6 +778,29 @@ def generate_html(results):
                         <div class="info-card respiratory">
                             <div class="info-card-title">Respiratory Status</div>
                             <div class="info-card-value">{respiratory_status}</div>
+                        </div>
+                    </div>
+                    
+                    <!-- GPS Comparison Section -->
+                    <div class="gps-comparison">
+                        <h4>📍 GPS Comparison Tool</h4>
+                        <div class="gps-input-group">
+                            <label>Ground Truth GPS Coordinates - Format: latitude, longitude</label>
+                            <input type="text" 
+                                   id="groundtruth-gps-{idx}" 
+                                   placeholder="Example: 40.425428, -79.954430"
+                                   data-video-idx="{idx}">
+                        </div>
+                        <button class="gps-button" onclick="calculateDistance({idx})">Calculate Distance</button>
+                        <button class="gps-button" onclick="clearComparison({idx})" style="background: #ff4444;">Clear</button>
+                        
+                        <div id="distance-result-{idx}" class="distance-result">
+                            <div class="distance-label">Distance Error:</div>
+                            <div class="distance-value" id="distance-value-{idx}">-- m</div>
+                            <div style="margin-top: 10px; color: #cccccc;">
+                                <div>Estimated: <span id="est-display-{idx}">--</span></div>
+                                <div>Ground Truth: <span id="gt-display-{idx}">--</span></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -735,6 +840,128 @@ def generate_html(results):
 """
     
     html += """
+    <script>
+        // Mean Earth radius in meters (WGS84)
+        const EARTH_RADIUS_M = 6371000.0;
+        
+        /**
+         * Haversine distance calculation between two GPS coordinates
+         * @param {number} lat1 - Latitude of point 1 in degrees
+         * @param {number} lon1 - Longitude of point 1 in degrees
+         * @param {number} lat2 - Latitude of point 2 in degrees
+         * @param {number} lon2 - Longitude of point 2 in degrees
+         * @returns {number} Distance in meters
+         */
+        function haversineDistance(lat1, lon1, lat2, lon2) {
+            // Convert to radians
+            const lat1Rad = lat1 * Math.PI / 180;
+            const lon1Rad = lon1 * Math.PI / 180;
+            const lat2Rad = lat2 * Math.PI / 180;
+            const lon2Rad = lon2 * Math.PI / 180;
+            
+            const dlat = lat2Rad - lat1Rad;
+            const dlon = lon2Rad - lon1Rad;
+            
+            const a = Math.sin(dlat / 2) ** 2 + 
+                      Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(dlon / 2) ** 2;
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            
+            return EARTH_RADIUS_M * c;
+        }
+        
+        /**
+         * Parse GPS coordinate string
+         * @param {string} gpsStr - GPS string in format "lat, lon"
+         * @returns {object|null} Object with lat and lon properties, or null if invalid
+         */
+        function parseGPS(gpsStr) {
+            if (!gpsStr || gpsStr === "Unknown") {
+                return null;
+            }
+            
+            // Remove extra whitespace and split
+            const parts = gpsStr.trim().split(',');
+            if (parts.length !== 2) {
+                return null;
+            }
+            
+            const lat = parseFloat(parts[0].trim());
+            const lon = parseFloat(parts[1].trim());
+            
+            if (isNaN(lat) || isNaN(lon)) {
+                return null;
+            }
+            
+            // Validate ranges
+            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                return null;
+            }
+            
+            return { lat, lon };
+        }
+        
+        /**
+         * Calculate distance between estimated and ground truth GPS
+         * @param {number} videoIdx - Video index
+         */
+        function calculateDistance(videoIdx) {
+            // Get estimated GPS
+            const estimatedEl = document.getElementById('estimated-gps-' + videoIdx);
+            const estimatedGPS = parseGPS(estimatedEl.textContent);
+            
+            if (!estimatedGPS) {
+                alert('Error: Estimated GPS coordinates are invalid or unavailable');
+                return;
+            }
+            
+            // Get ground truth GPS
+            const groundTruthInput = document.getElementById('groundtruth-gps-' + videoIdx);
+            const groundTruthGPS = parseGPS(groundTruthInput.value);
+            
+            if (!groundTruthGPS) {
+                alert('Error: Please enter valid GPS coordinates (format: latitude, longitude)\\n\\nExample: 40.425428, -79.954430');
+                return;
+            }
+            
+            // Calculate distance
+            const distance = haversineDistance(
+                estimatedGPS.lat, estimatedGPS.lon,
+                groundTruthGPS.lat, groundTruthGPS.lon
+            );
+            
+            // Display results
+            document.getElementById('distance-value-' + videoIdx).textContent = distance.toFixed(3) + ' m';
+            document.getElementById('est-display-' + videoIdx).textContent = 
+                estimatedGPS.lat.toFixed(6) + ', ' + estimatedGPS.lon.toFixed(6);
+            document.getElementById('gt-display-' + videoIdx).textContent = 
+                groundTruthGPS.lat.toFixed(6) + ', ' + groundTruthGPS.lon.toFixed(6);
+            document.getElementById('distance-result-' + videoIdx).classList.add('show');
+        }
+        
+        /**
+         * Clear comparison results
+         * @param {number} videoIdx - Video index
+         */
+        function clearComparison(videoIdx) {
+            document.getElementById('groundtruth-gps-' + videoIdx).value = '';
+            document.getElementById('distance-result-' + videoIdx).classList.remove('show');
+            document.getElementById('distance-value-' + videoIdx).textContent = '-- m';
+            document.getElementById('est-display-' + videoIdx).textContent = '--';
+            document.getElementById('gt-display-' + videoIdx).textContent = '--';
+        }
+        
+        // Allow Enter key to trigger calculation
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('[id^="groundtruth-gps-"]').forEach(function(input) {
+                input.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        const videoIdx = this.getAttribute('data-video-idx');
+                        calculateDistance(videoIdx);
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 </html>
 """

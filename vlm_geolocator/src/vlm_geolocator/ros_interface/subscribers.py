@@ -59,7 +59,9 @@ class ROSSubscriberManager:
     
     def subscribe_trigger(self, topic_name: str, callback: Callable):
         """订阅触发话题"""
-        self.subscribers['trigger'] = self.node.create_subscription(
+        # 使用话题名作为键的一部分，避免多个触发器订阅时互相覆盖
+        key = f'trigger_{topic_name.replace("/", "_")}'
+        self.subscribers[key] = self.node.create_subscription(
             Bool,
             topic_name,
             callback,

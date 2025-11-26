@@ -210,12 +210,18 @@ class VideoRecorder:
             filename = f"segment_{timestamp}.mp4"
             output_path = self.current_output_dir / filename
             
+            # 计算最小帧数要求
+            min_required_frames = int(duration * min_fps)
+            
             # 记录元数据
             self.recording_metadata = {
                 "start_time": timestamp,
                 "video_file": filename,
                 "folder": folder_name,
-                "has_gps": gps_snapshot is not None
+                "has_gps": gps_snapshot is not None,
+                "min_required_frames": min_required_frames,
+                "min_fps_required": min_fps,
+                "recording_duration_target": duration,
             }
             
             if gps_snapshot is not None:
@@ -364,6 +370,7 @@ class VideoRecorder:
             self.recording_metadata["duration_seconds"] = elapsed
             self.recording_metadata["frame_count"] = frames_written
             self.recording_metadata["actual_fps"] = actual_fps
+            self.recording_metadata["is_ready"] = frames_written >= min_required_frames
             
             # 保存元数据到同一文件夹
             metadata_filename = output_path.stem + "_metadata.json"

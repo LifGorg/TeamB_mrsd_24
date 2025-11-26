@@ -61,6 +61,7 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const [geofenceMappingAltitude, setGeofenceMappingAltitude] = useState<number>(10.0); // Geofence mapping altitude
   const [surveyAltitude, setSurveyAltitude] = useState<number>(6.0); // Survey altitude
   const [clickMode, setClickMode] = useState<"waypoint" | "obstacle">("waypoint");
+  const clickModeRef = useRef<"waypoint" | "obstacle">("waypoint");
   
   // Global waypoint counter for unique IDs across missions
   const globalWaypointCounterRef = useRef<number>(0);
@@ -77,6 +78,13 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   const SURVEY_ALTITUDE_TOPIC = "/survey_altitude";  // Survey altitude
   const PLANNED_PATH_TOPIC = "/dtc_mrsd_/mavros/planner/path"; // New topic for planned path
   const GEOFENCE_MAPPING_STATUS_TOPIC = "/geofence_mapping_status"; // New topic for mapping status
+
+  // Predefined obstacle location (from gps_config.yaml)
+  const PREDEFINED_OBSTACLE = {
+    latitude: 40.4254603,
+    longitude: -79.9545695,
+    radius: 1.5  // meters
+  };
 
   // Store drone position and heading
   const dronePositionRef = useRef<{lat: number, lon: number} | null>(null);
@@ -123,6 +131,11 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
   useEffect(() => {
     ensureAdvertised();
   }, [context]);
+
+  // Keep clickModeRef in sync so Leaflet click handler always sees latest mode
+  useEffect(() => {
+    clickModeRef.current = clickMode;
+  }, [clickMode]);
 
   // Publish selected waypoint
   const publishSelectedWaypoint = useCallback((lat: number, lon: number, alt?: number, yaw?: number) => {
@@ -230,6 +243,51 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
     }
   }, [context, SURVEY_ALTITUDE_TOPIC, surveyAltitude]);
 
+  // Publish predefined obstacle
+  const publishPredefinedObstacle = useCallback(() => {
+    if (!context.publish) return;
+    
+    ensureAdvertised();
+    
+    const { latitude, longitude, radius } = PREDEFINED_OBSTACLE;
+    
+    const msg = {
+      header: {
+        stamp: { sec: Math.floor(Date.now() / 1000), nsec: (Date.now() % 1000) * 1e6 },
+        frame_id: "map",
+      },
+      status: { status: 0, service: 1 },
+      latitude: latitude,
+      longitude: longitude,
+      altitude: radius,  // Store radius in altitude field (convention)
+    };
+
+    try {
+      context.publish(CLICKED_OBSTACLE_TOPIC, msg);
+      console.log("[GeofenceMap] ✓ Published predefined obstacle:", latitude, longitude, `Radius: ${radius}m`);
+      setStatus(`Published predefined obstacle at (${latitude.toFixed(6)}, ${longitude.toFixed(6)}) with radius ${radius}m`);
+      
+      // Pan map to predefined obstacle and flash it to draw attention
+      if (mapRef.current) {
+        mapRef.current.setView([latitude, longitude], 19, { animate: true });
+        
+        // Flash the obstacle circle
+        const predefinedCircle = obstacleMarkersRef.current.get('predefined-obstacle');
+        if (predefinedCircle) {
+          const originalStyle = { color: '#ffa500', fillColor: '#ffa500' };
+          const flashStyle = { color: '#ff0000', fillColor: '#ff0000' };
+          
+          predefinedCircle.setStyle(flashStyle);
+          setTimeout(() => {
+            predefinedCircle.setStyle(originalStyle);
+          }, 500);
+        }
+      }
+    } catch (error) {
+      console.error("[GeofenceMap] ✗ Publish predefined obstacle failed:", error);
+    }
+  }, [context, CLICKED_OBSTACLE_TOPIC]);
+
   // Zoom to drone position
   const zoomToDrone = () => {
     if (!mapRef.current || !dronePositionRef.current) {
@@ -322,11 +380,38 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
       maxZoom: 19,
     }).addTo(map);
 
-    // Add click handler to set waypoint
+    // Add predefined obstacle to map
+    const { latitude, longitude, radius } = PREDEFINED_OBSTACLE;
+    
+    // Draw the predefined obstacle circle (orange color to distinguish from clicked obstacles)
+    const predefinedCircle = L.circle([latitude, longitude], {
+      radius: radius,                   // Radius in meters
+      color: "#ffa500",                 // Orange outline
+      weight: 3,
+      fillColor: "#ffa500",            // Orange fill
+      fillOpacity: 0.25,               // Semi-transparent
+    }).addTo(map);
+    
+    // Add predefined obstacle marker icon at the center
+    const predefinedObstacleIcon = L.divIcon({
+      className: "predefined-obstacle-marker",
+      html: `<div style="background-color: #ffa500; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.6);">⚠</div>`,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+    });
+
+    L.marker([latitude, longitude], { icon: predefinedObstacleIcon })
+      .addTo(map)
+      .bindPopup(`<b>Predefined Obstacle</b><br>Lat: ${latitude.toFixed(6)}<br>Lon: ${longitude.toFixed(6)}<br>Radius: ${radius}m<br><small>(from gps_config.yaml)</small>`);
+    
+    // Store predefined obstacle in ref
+    obstacleMarkersRef.current.set('predefined-obstacle', predefinedCircle);
+
+    // Add click handler to set waypoint or obstacle based on current clickMode
     map.on("click", (e) => {
       const { lat, lng } = e.latlng;
       
-      if (clickMode === "waypoint") {
+      if (clickModeRef.current === "waypoint") {
         // Update waypoint marker with current yaw setting
         updateSelectedWaypointMarker(lat, lng, waypointYaw);
         setSelectedWaypoint({ lat, lon: lng });
@@ -335,22 +420,36 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
         if (selectedWaypointMarkerRef.current) {
           selectedWaypointMarkerRef.current.openPopup();
         }
-      } else if (clickMode === "obstacle") {
+      } else if (clickModeRef.current === "obstacle") {
         const obstacleRadiusMeters = 1.5;
         
         // Draw a circle on the map with a real-world radius
         const circle = L.circle([lat, lng], {
             radius: obstacleRadiusMeters, // Radius in meters
-            color: '#ff0000',             // Red outline
-            fillColor: '#ff0000',         // Red fill
-            fillOpacity: 0.3,              // Slightly transparent
+            color: "#ff0000",             // Red outline
+            weight: 2,
+            fillColor: "#ff0000",         // Red fill
+            fillOpacity: 0.3,             // Slightly transparent
         }).addTo(map);
         
-        circle.bindPopup(`<b>Obstacle</b><br>Radius: ${obstacleRadiusMeters}m`);
+        // Add a clear obstacle marker icon at the center for visibility
+        const obstacleIcon = L.divIcon({
+          className: "obstacle-marker",
+          html: `<div style="background-color: #ff0000; width: 18px; height: 18px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.5);">O</div>`,
+          iconSize: [18, 18],
+          iconAnchor: [9, 9],
+        });
+
+        L.marker([lat, lng], { icon: obstacleIcon })
+          .addTo(map)
+          .bindPopup(`<b>Obstacle</b><br>Radius: ${obstacleRadiusMeters}m`);
         
         const obstacleId = `obstacle-${Date.now()}`;
         obstacleMarkersRef.current.set(obstacleId, circle);
         
+        // Update status text so user knows an obstacle was placed
+        setStatus(`Obstacle placed at ${lat.toFixed(6)}, ${lng.toFixed(6)} (R=${obstacleRadiusMeters}m)`);
+
         // Publish the obstacle position and radius
         publishClickedObstacle(lat, lng, obstacleRadiusMeters);
       }
@@ -991,6 +1090,43 @@ function GeofenceHumanPanel({ context }: { context: PanelExtensionContext }): Re
           </button>
           <span style={{ fontSize: "10px", color: "#666" }}>
             → /survey_altitude
+          </span>
+        </div>
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          gap: "8px", 
+          marginTop: "6px",
+          fontSize: "11px",
+          padding: "8px",
+          backgroundColor: "#fff3cd",
+          borderRadius: "4px",
+          border: "1px solid #ffc107"
+        }}>
+          <label style={{ fontWeight: "600", color: "#856404" }}>
+            Predefined Obstacle:
+          </label>
+          <span style={{ fontSize: "10px", color: "#666" }}>
+            ({PREDEFINED_OBSTACLE.latitude.toFixed(6)}, {PREDEFINED_OBSTACLE.longitude.toFixed(6)}, r={PREDEFINED_OBSTACLE.radius}m)
+          </span>
+          <button
+            onClick={publishPredefinedObstacle}
+            style={{
+              padding: "4px 10px",
+              fontSize: "11px",
+              borderRadius: "3px",
+              border: "1px solid #ff6b6b",
+              background: "#ff6b6b",
+              color: "white",
+              cursor: "pointer",
+              fontWeight: "600",
+            }}
+            title="Send predefined obstacle to /clicked_obstacle"
+          >
+            Send Obstacle
+          </button>
+          <span style={{ fontSize: "10px", color: "#666" }}>
+            → /clicked_obstacle
           </span>
         </div>
         <div style={{ marginTop: "8px", display: "flex", gap: "8px", alignItems: "center" }}>

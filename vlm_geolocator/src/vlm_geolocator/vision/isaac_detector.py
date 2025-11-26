@@ -95,7 +95,7 @@ class IsaacDetectorWrapper(DetectorInterface):
         messages = [
             {"role": "user", "content": "<hint>BOX</hint>"},
             {"role": "user", "content": self.config.vision_token},
-            {"role": "user", "content": "point people on images"}
+            {"role": "user", "content": "point people and upper-body dummies (mannequins with only torso and head, no legs) on images"}
         ]
         
         text_fmt = self.processor.apply_chat_template(
