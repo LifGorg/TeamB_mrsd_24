@@ -2,223 +2,153 @@
 
 ## Overview
 
-The system has been consolidated into a single (unified) ROS 2 Humble container that launches the flight autonomy stack (MAVROS + behavior governor + domain bridge) and provides the gimbal control nodes in the same workspace. The repository includes:
+This repository contains the unified software stack for the Team Chiron MRS-D drone system. It consolidates flight autonomy, gimbal control, and vision-based geolocation into a single deployment unit.
 
-- **AirStack**: Unified ROS2 workspace with flight autonomy and gimbal control
-- **Operator**: Foxglove Studio extensions for mission planning and visualization
-- **VLM Geolocator**: Vision Language Model based casualty detection and GPS geolocation
-- **Scripts**: Utility scripts for system management and FVD operations
+**Key Features:**
+- **Unified Runtime**: Single ROS 2 Humble Docker container for all onboard systems.
+- **Autonomy**: MAVROS interface, behavior governor, and domain bridge.
+- **Vision**: Real-time casualty detection and GPS geolocation (VLM Geolocator).
+- **Operations**: Integrated mission control and visualization via Foxglove and QGroundControl.
 
-## Key Components (Current Runtime)
+---
 
-Launched automatically (via `robot.launch.xml`) inside the unified container:
-- PX4 / MAVROS interface (`mavros_interface/px4.launch`)
-- `behavior_governor` node (autonomy behavior management)
-- `domain_bridge` (intra-domain/topic bridging per `domain_bridge.yaml`)
+## 1. Prerequisites
 
-Available to run manually inside the container:
-- `gimbal_control_node`, `gimbal_status_node`, `gimbal_angle_control_node` (package: `gimbal_control`)
+### Hardware
+- **Onboard Computer**: NVIDIA Jetson Orin (or compatible ARM64/x86 platform with NVIDIA GPU).
+- **Flight Controller**: PX4-based flight controller (connected via serial/USB).
+- **Camera**: USB Camera (mounted as `/dev/video4` by default) or RTSP stream.
 
-Legacy / reference only:
-- ROS1 teleoperation node (`operator/ros_ws/src/gimbal_teleop`) – not part of the current default runtime.
+### Software
+- **OS**: Ubuntu 20.04 or 22.04.
+- **Docker**: Installed and configured.
+- **NVIDIA Container Toolkit**: Required for GPU acceleration (JetPack).
 
-## Repository Structure
+---
 
-- `airstack/` – Active unified ROS2 workspace (`ros_ws/`)
-  - `docker/Dockerfile.unified` – Build recipe for the unified image
-  - `docker/run_unified.sh` – Helper script to start the unified runtime
-  - `ros_ws/` – ROS2 workspace (packages: autonomy, behavior_governor, gimbal_control, robot_bringup, etc.)
-- `operator/` – Foxglove Studio extensions for mission planning and control
-  - `behavior-tree-controller/` – Behavior tree mission controller
-  - `geofence-human-visualizer/` – Geofence and human detection visualization
-  - `gimbal-foxglove-controller/` – Gimbal control interface
-  - `path-solver-extension/` – Path planning and waypoint solver
-- `scripts/` – Utility scripts for system management
-  - `FVD.sh` – Main launch script for FVD operations (tmux session manager)
-  - `new_tmux.sh` – Tmux session setup utilities
-  - `setup_test_environment.sh` – Test environment configuration
-- `vlm_geolocator/` – Vision Language Model (VLM) based geolocation system
-  - Real-time casualty detection and GPS coordinate estimation
-  - Gemini video analyzer integration
-  - ROS2 interface for publishing geolocated casualty data
+## 2. Installation
 
-## Prerequisites
+1. **Clone the Repository**
+   ```bash
+   git clone --recursive https://github.com/LifGorg/TeamB_mrsd_24.git georgia_dtc_ops_team_chiron_mrsd
+   cd georgia_dtc_ops_team_chiron_mrsd
+   ```
 
-Install Docker (and NVIDIA Container Toolkit if using Jetson / GPU). Docker Compose is not required for the unified flow.
+2. **Build the Unified Docker Image**
+   ```bash
+   cd airstack/docker
+   docker build -f Dockerfile.unified -t airstack-unified:latest .
+   ```
+   *Note: This build includes ROS 2 Humble, MAVROS, and all dependency packages.*
 
-## Quick Start
+---
 
-```bash
-git clone <repo_url>
-cd georgia_dtc_ops_team_chiron_mrsd
-```
+## 3. Deployment (Field Operation)
 
-### 1. Build the Unified Image (if you need a fresh build)
+The primary method for field operation is the **FVD (Field Validation & Deployment)** script. This script automates the startup of all necessary subsystems in a managed `tmux` session.
 
-The Dockerfile expects build context at `airstack/docker` so that `../ros_ws` is available for COPY.
+### Launch
+Run the deployment script from the repository root:
 
 ```bash
-cd airstack/docker
-docker build -f Dockerfile.unified -t airstack-unified:latest .
+./scripts/FVD.sh
 ```
 
-### 2. Launch the Unified Container (recommended script)
+### What Happens
+The script initializes a split-screen interface (tmux) with the following active components:
 
-From the repo root or from within `airstack/docker`:
+| Pane/Window | Component | Function |
+|-------------|-----------|----------|
+| **Pane 0** | `Foxglove Bridge` | Bridges ROS 2 topics (Domain 100) for ground station visualization. |
+| **Pane 1** | `QGroundControl` | Flight planning and telemetry monitoring. |
+| **Pane 2** | `RTSP/Camera` | Handles video capture and streaming. |
+| **Pane 3** | `Local Receiver` | Displays the local video feed for verification. |
+| **Pane 4** | **VLM Geolocator** | Runs the vision inference node for casualty detection. |
+| **Win 2** | `Video Merger` | Combines video streams (if configured). |
+| **Win 3** | `HTML Viewer` | Displays Gemini analysis results in real-time. |
 
+### Stopping the System
+To stop all processes and close the session:
+- Press `Ctrl+C` in the respective panes, or
+- Kill the tmux session: `tmux kill-session -t chiron_ops_panes`
+
+---
+
+## 4. Manual Operation (Development)
+
+If you need to run specific nodes manually or debug the system, follow these steps.
+
+### Launch the Container
+Start the unified container in background mode:
 ```bash
 ./airstack/docker/run_unified.sh
 ```
+*This automatically starts MAVROS, the behavior governor, and the domain bridge.*
 
-This script:
-1. Locates (without pulling) a suitable previously-built L4T AirStack image (or fails fast)
-2. Starts container `airstack-unified` with:
-   - Host networking
-   - NVIDIA runtime (`--runtime nvidia`)
-   - Mounted ROS workspace (`airstack/ros_ws` → `/root/ros_ws`)
-   - SSH service enabled
-   - Auto (re)build if `robot_bringup` not installed
-3. Launches `robot_bringup/robot.launch.xml`
-4. Streams logs to your terminal
-
-If you want to force using the freshly built `airstack-unified:latest` image, temporarily tag / retag it to match the script’s discovery pattern or adjust the script (future enhancement: add explicit IMAGE override variable).
-
-### 3. Verify Runtime
-
-In another terminal:
-```bash
-docker ps --filter name=airstack-unified
-docker logs -f airstack-unified | grep behavior_governor
-```
-
-You should see MAVROS connection attempts and the behavior governor starting.
-
-### 4. Enter the Container
-
+### Enter the Container
 ```bash
 docker exec -it airstack-unified bash
-source /opt/ros/humble/setup.bash
 source /root/ros_ws/install/setup.bash
 ```
 
-### 5. Run Gimbal Nodes (Manual)
-
+### Run Gimbal Nodes
+Gimbal control nodes are not started automatically in the container. Run them as needed:
 ```bash
+# Status Monitor
 ros2 run gimbal_control gimbal_status_node
+
+# Control Interface
 ros2 run gimbal_control gimbal_control_node
+
+# Angle Control
 ros2 run gimbal_control gimbal_angle_control_node
 ```
 
-Example command to publish an angle vector (pitch=x, yaw=y, zoom=z placeholder):
-```bash
-ros2 topic pub /gimbal_angles geometry_msgs/msg/Vector3 "{x: 0.0, y: 0.0, z: 90.0}" -r 1
-```
-
-### 6. Rebuilding After Code Changes
-
-Because the workspace is bind-mounted, edit code on the host then inside the container:
+### Rebuilding Code
+The workspace is bind-mounted. You can edit code on the host, then rebuild inside the container:
 ```bash
 cd /root/ros_ws
 colcon build --symlink-install --merge-install
 source install/setup.bash
 ```
 
-If build artifacts get inconsistent:
-```bash
-rm -rf build install log
-colcon build --symlink-install --merge-install
-```
+---
 
-### 7. Stopping / Restarting
+## 5. Configuration
 
-```bash
-docker stop airstack-unified
-./airstack/docker/run_unified.sh   # restart
-```
+### Environment Variables
+Set these before running `run_unified.sh` or `FVD.sh` to override defaults:
 
-## Environment Variables (Runtime)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ROBOT_NAME` | `dtc_mrsd` | Logical robot name (used for namespacing). |
+| `ROS_DOMAIN_ID` | `70` | DDS domain for flight autonomy. |
 
-Set before invoking `run_unified.sh` to override defaults:
+### VLM Geolocator Config
+Located in `vlm_geolocator/config/`:
+- `camera_config.yaml`: Camera resolution, framerate, and source.
+- `gps_config.yaml`: GPS offset and coordinate calculations.
+- `ros_config.yaml`: Topic names and QoS settings.
 
-| Variable        | Purpose                                    | Default |
-|-----------------|--------------------------------------------|---------|
-| `ROBOT_NAME`    | Logical robot name (sanitized to namespace)| `dtc_mrsd` |
-| `ROBOT_NAMESPACE` | (Derived) ROS namespace                  | (sanitized `ROBOT_NAME`) |
-| `ROS_DOMAIN_ID` | DDS domain isolation                       | `70` |
+---
 
-Example:
-```bash
-export ROBOT_NAME=field_unit_a
-export ROS_DOMAIN_ID=42
-./airstack/docker/run_unified.sh
-```
+## 6. Repository Structure
 
-## What the Entrypoint Launches
+- `airstack/` – **Core Autonomy**. Unified ROS 2 workspace (`ros_ws`) and Docker configuration.
+- `operator/` – **Ground Control**. Foxglove Studio extensions and visualization tools.
+- `vlm_geolocator/` – **Vision System**. Casualty detection, GPS geolocation, and video analysis.
+- `scripts/` – **Utilities**. Deployment scripts (including `FVD.sh`).
 
-`airstack/ros_ws/entrypoint.sh` sources ROS, then launches:
-```
-ros2 launch robot_bringup robot.launch.xml
-```
-Which (see `robot_bringup/launch/robot.launch.xml`) includes:
-- MAVROS PX4 interface
-- behavior_governor (respawn)
-- domain_bridge (respawn)
+---
 
-`gimbal_control` nodes are intentionally NOT auto-started—run only what you need.
-
-## Quick Launch with FVD.sh
-
-For a complete FVD (Field Validation and Deployment) setup, use the main launch script:
-
-```bash
-./scripts/FVD.sh
-```
-
-This script will:
-1. Clean up existing processes (foxglove_bridge, QGroundControl, GStreamer, VLM nodes)
-2. Create a tmux session with multiple panes:
-   - **Pane 0**: Foxglove Bridge (ROS_DOMAIN_ID=100)
-   - **Pane 1**: QGroundControl
-   - **Pane 2**: RTSP Stream (remote camera capture)
-   - **Pane 3**: Local Receiver (web_video_server)
-   - **Pane 4**: VLM Geolocator (vision inference node)
-3. Create additional windows for:
-   - Video Merger Node
-   - HTML Viewer (Gemini results)
-
-The script uses relative paths and will work from any location within the repository.
-
-## Gimbal Notes
-
-- Pitch range: -90° (down) to +90° (up)
-- Yaw range: -120° to +120°
-- Prefer incremental movements to avoid saturating control
-
-## Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Check |
 |---------|-------|
-| Container exits immediately | View `docker logs airstack-unified` for build or launch errors |
-| MAVROS not connecting | Verify serial/device mappings (add device mounts if needed) |
-| Nodes not found | Rebuild: remove `build install log` then `colcon build` |
-| Gimbal topic absent | Ensure you started the desired `gimbal_control` node |
-
-## VLM Geolocator
-
-The `vlm_geolocator/` directory contains the Vision Language Model based geolocation system:
-
-- **Main Node**: `src/vision_inference_node_refactored.py` – Processes video streams and publishes geolocated casualty data
-- **GPS Calculator**: `src/vlm_geolocator/gps/calculator.py` – Estimates GPS coordinates from camera data
-- **Configuration**: YAML files in `config/` for camera, GPS, ROS, and system settings
-- **Domain**: Publishes to ROS_DOMAIN_ID=100 on topic `/casualty_geolocated`
-
-For detailed documentation, see the README files within `vlm_geolocator/`.
-
-## Next Steps (Planned Enhancements)
-
-- Add launch file to optionally auto-start gimbal nodes
-- Allow IMAGE override in `run_unified.sh`
-- Provide ROS1→ROS2 bridge or pure ROS2 teleop replacement
+| **Container exits immediately** | Check `docker logs airstack-unified`. Ensure NVIDIA runtime is available. |
+| **MAVROS not connecting** | Verify flight controller USB connection and permissions (`/dev/ttyACM0`). |
+| **Camera fail** | Check if `/dev/video4` exists or verify RTSP stream URL in `camera_config.yaml`. |
+| **"Casualty Not Found"** | Ensure the VLM Geolocator node (Pane 4) is running and receiving GPS data. |
 
 ---
-This README reflects the CURRENT supported unified workflow.
+*For legacy documentation (multi-container setup), refer to archived files.*
